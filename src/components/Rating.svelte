@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { appState, goTo } from '../stores/appState.svelte';
+  import { appState, goTo } from '../stores/appState.svelte.ts';
   import { RATING_POOL } from '../lib/data';
   import { posterUrl } from '../lib/tmdb';
   import type { RatingItem } from '../lib/types';

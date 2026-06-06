@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { goTo } from '../stores/appState.svelte';
+  import { goTo } from '../stores/appState.svelte.ts';
 
   function start() {
     goTo('quiz');

@@ -1,5 +1,5 @@
 <script lang="ts">
-  import { appState, goTo } from '../stores/appState.svelte';
+  import { appState, goTo } from '../stores/appState.svelte.ts';
   import { QUIZ_QUESTIONS } from '../lib/data';
 
   let index = $state(0);
