@@ -1,18 +1,10 @@
 version: 2
 updates:
-  # 1. This checks for Python dependencies (requirements.txt)
-  - package-ecosystem: "pip"
-    directory: "/"
-    schedule:
-      interval: "weekly"
-
-  # 2. This checks for Node/JS dependencies (package.json)
   - package-ecosystem: "npm"
     directory: "/"
     schedule:
       interval: "weekly"
 
-  # 3. This keeps your GitHub Actions updated
   - package-ecosystem: "github-actions"
     directory: "/"
     schedule:
