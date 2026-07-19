@@ -1,15 +1,21 @@
 import { defineConfig } from 'vite';
-import { svelte } from '@sveltejs/vite-plugin-svelte';
 
 export default defineConfig({
-  plugins: [svelte()],
   build: {
-    target: 'es2020',
-    cssCodeSplit: false,
+    target: 'es2022',
+    sourcemap: true,
     rollupOptions: {
       output: {
-        manualChunks: undefined,
-      }
-    }
-  }
+        // Keep the optional in-browser LLM module in its own chunk so it
+        // never ships to users who don't opt into it.
+        manualChunks(id) {
+          if (id.includes('src/lib/llm.ts')) return 'llm';
+          if (id.includes('src/lib/fluid.ts')) return 'fluid';
+        },
+      },
+    },
+  },
+  server: {
+    port: 5173,
+  },
 });

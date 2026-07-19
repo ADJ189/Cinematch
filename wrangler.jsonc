@@ -1,11 +1,15 @@
 {
-  "name": "recommendation-engine",
-  "compatibility_date": "2025-01-01",
+  "name": "cinematch",
+  "compatibility_date": "2026-01-01",
   "assets": {
     "directory": "./dist"
   },
-  // Workers AI binding — enables env.AI in Pages Functions
-  // Free tier: 10,000 neurons/day, no credit card required
+  // Optional: enables env.AI in functions/api/recommend.ts for server-side
+  // re-ranking. The app works fully without this — client-side TMDB +
+  // engine.ts is the primary path. If you enable this, you must ALSO turn
+  // on the AI binding in the Cloudflare dashboard for this Pages project
+  // (Settings -> Functions -> AI binding) — declaring it here alone is not
+  // enough, which was the root cause of the old app's silent fallback.
   "ai": {
     "binding": "AI"
   }
