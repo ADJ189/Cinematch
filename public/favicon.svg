@@ -1,0 +1,11 @@
+<svg width="64" height="64" viewBox="0 0 64 64" xmlns="http://www.w3.org/2000/svg" role="img">
+<title>CineMatch</title>
+<defs>
+<linearGradient id="fg" x1="0%" y1="0%" x2="100%" y2="100%">
+<stop offset="0%" stop-color="#a78bfa"/>
+<stop offset="100%" stop-color="#22d3ee"/>
+</linearGradient>
+</defs>
+<circle cx="32" cy="32" r="30" fill="#0a0714"/>
+<path d="M24 18 L46 32 L24 46 Z" fill="url(#fg)"/>
+</svg>
