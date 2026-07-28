@@ -4,15 +4,29 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="description" content="CineMatch — a fast, precision movie and TV recommendation engine. No account, no tracking, just better picks." />
-    <meta name="theme-color" content="#0a0714" />
+    <meta name="theme-color" content="#0a0714" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#faf9fd" media="(prefers-color-scheme: light)" />
     <title>CineMatch — find what to watch next</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link
-      href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,500;12..96,600;12..96,700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
+      href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
       rel="stylesheet"
     />
+    <script>
+      // Applied before first paint to avoid a flash of the wrong theme —
+      // src/lib/theme.ts re-applies this on load and owns it from there.
+      (function () {
+        try {
+          var stored = localStorage.getItem('cinematch-theme');
+          var theme = stored === 'dark' || stored === 'light'
+            ? stored
+            : (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
+          document.documentElement.setAttribute('data-theme', theme);
+        } catch (e) {}
+      })();
+    </script>
   </head>
   <body>
     <div id="app"></div>
