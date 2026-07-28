@@ -28,6 +28,11 @@ export function backdropUrl(path: string | null): string | null {
   return `${IMAGE_BASE}${SIZES.xl}${path}`;
 }
 
+/** Public TMDB page for a title — used by the "check before you watch" detail view. */
+export function tmdbDetailsUrl(id: number, tmdbType: 'movie' | 'tv'): string {
+  return `https://www.themoviedb.org/${tmdbType}/${id}`;
+}
+
 async function tmdbFetch<T>(path: string, params: Record<string, string> = {}): Promise<T> {
   const url = new URL(`${API_BASE}${path}`);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
@@ -157,8 +162,15 @@ export interface DiscoverFilters {
  * the fix for "same recommendations every time" — the pool is now hundreds
  * of titles wide and actually shifts with the quiz answers, instead of a
  * fixed 30-item array re-sorted in place.
+ *
+ * `pageOffset` shifts the page window forward (e.g. offset 3 pulls pages
+ * 4-6 instead of 1-3) so "show me different picks" can pull a genuinely
+ * new batch from TMDB instead of re-sorting the same candidates.
  */
-export async function discoverCandidates(filters: DiscoverFilters): Promise<CatalogItem[]> {
+export async function discoverCandidates(
+  filters: DiscoverFilters,
+  pageOffset = 0
+): Promise<CatalogItem[]> {
   const wantMovies = filters.format !== 'series';
   const wantSeries = filters.format !== 'movie';
 
@@ -185,7 +197,7 @@ export async function discoverCandidates(filters: DiscoverFilters): Promise<Cata
     }
     if (filters.language === 'english') params.with_original_language = 'en';
 
-    jobs.push(fetchDiscoverPages('/discover/movie', params, 'movie'));
+    jobs.push(fetchDiscoverPages('/discover/movie', params, 'movie', pageOffset));
   }
 
   if (wantSeries) {
@@ -202,7 +214,7 @@ export async function discoverCandidates(filters: DiscoverFilters): Promise<Cata
     }
     if (filters.language === 'english') params.with_original_language = 'en';
 
-    jobs.push(fetchDiscoverPages('/discover/tv', params, 'tv'));
+    jobs.push(fetchDiscoverPages('/discover/tv', params, 'tv', pageOffset));
   }
 
   const results = await Promise.all(jobs);
@@ -212,11 +224,12 @@ export async function discoverCandidates(filters: DiscoverFilters): Promise<Cata
 async function fetchDiscoverPages(
   path: string,
   params: Record<string, string>,
-  tmdbType: 'movie' | 'tv'
+  tmdbType: 'movie' | 'tv',
+  pageOffset = 0
 ): Promise<CatalogItem[]> {
   const pages = await Promise.all(
     [1, 2, 3].map((page) =>
-      tmdbFetch<{ results: TmdbRawResult[] }>(path, { ...params, page: String(page) }).catch(
+      tmdbFetch<{ results: TmdbRawResult[] }>(path, { ...params, page: String(page + pageOffset) }).catch(
         () => ({ results: [] })
       )
     )

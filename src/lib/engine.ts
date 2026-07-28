@@ -46,7 +46,7 @@ export class RecommendationEngine {
     seeds: RatingSeed[],
     signalsBySeedId: Record<number, string[]>
   ): void {
-    this.ratings = ratings;
+    this.ratings = { ...this.ratings, ...ratings };
     this.ratedSeeds = seeds;
 
     for (const [idStr, rating] of Object.entries(ratings)) {
@@ -60,6 +60,23 @@ export class RecommendationEngine {
         else this.genre[signal] = (this.genre[signal] ?? 0) + weight;
       }
     }
+  }
+
+  /**
+   * Lets the user keep rating titles directly on the results screen and get
+   * a re-curated list without starting over. Unlike processRatings (which
+   * needs a signal map for the fixed calibration seeds), this reads
+   * genre/vibe straight off the live CatalogItem being rated — every live
+   * TMDB result already carries that data, so no lookup table is needed.
+   * Weighted slightly higher than a calibration-seed rating: rating an
+   * actual recommendation the engine just made is the strongest signal
+   * the app gets.
+   */
+  processResultRating(item: CatalogItem, rating: RatingValue): void {
+    this.ratings = { ...this.ratings, [item.id]: rating };
+    const weight = ((rating - 3) / 2) * 0.85;
+    for (const g of item.genres) this.genre[g] = (this.genre[g] ?? 0) + weight;
+    for (const v of item.vibe) this.vibe[v] = (this.vibe[v] ?? 0) + weight;
   }
 
   private scoreItem(item: CatalogItem): number {
