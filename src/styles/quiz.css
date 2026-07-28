@@ -88,6 +88,7 @@
   background: var(--surface-hover);
   border-color: var(--border-strong);
   transform: translateY(-2px);
+  box-shadow: 0 8px 20px rgba(124, 92, 240, 0.14);
 }
 
 .quiz-option:active {
@@ -96,6 +97,11 @@
 
 .quiz-option-icon {
   font-size: 20px;
+  transition: transform var(--dur-fast) var(--ease-spring);
+}
+
+.quiz-option:hover .quiz-option-icon {
+  transform: scale(1.15) rotate(-6deg);
 }
 
 .quiz-back {

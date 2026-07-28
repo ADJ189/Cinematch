@@ -4,6 +4,10 @@
   box-sizing: border-box;
 }
 
+html {
+  transition: background-color var(--dur-med) var(--ease-smooth);
+}
+
 html,
 body {
   margin: 0;
@@ -11,7 +15,9 @@ body {
   background: var(--bg-0);
   color: var(--text-primary);
   font-family: var(--font-body);
+  font-feature-settings: 'ss01' 1, 'cv01' 1;
   -webkit-font-smoothing: antialiased;
+  transition: color var(--dur-med) var(--ease-smooth), background-color var(--dur-med) var(--ease-smooth);
 }
 
 body {
@@ -65,7 +71,7 @@ img {
 
 .screen {
   width: 100%;
-  min-height: 100dvh;
+  min-height: calc(100dvh - var(--header-height));
   display: flex;
   flex-direction: column;
   align-items: center;
@@ -98,20 +104,37 @@ img {
   border-radius: var(--radius-pill);
   font-weight: 600;
   font-size: 15px;
-  transition: transform var(--dur-fast) var(--ease-spring), box-shadow var(--dur-fast);
+  transition: transform var(--dur-fast) var(--ease-spring), box-shadow var(--dur-fast), background var(--dur-fast), border-color var(--dur-fast);
 }
 
 .btn:active {
   transform: scale(0.97);
 }
 
-.btn-primary {
-  background: var(--gradient-match);
-  color: #0a0714;
+.btn:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
 }
 
-.btn-primary:hover {
+.btn-primary {
+  background: var(--gradient-match);
+  background-size: 200% 200%;
+  color: #0a0714;
+  animation: gradient-shift 6s ease infinite;
+}
+
+.btn-primary:hover:not(:disabled) {
   box-shadow: 0 0 0 4px rgba(167, 139, 250, 0.18);
+  transform: translateY(-1px);
+}
+
+@keyframes gradient-shift {
+  0%, 100% {
+    background-position: 0% 50%;
+  }
+  50% {
+    background-position: 100% 50%;
+  }
 }
 
 .btn-ghost {
@@ -120,9 +143,28 @@ img {
   border: 1px solid var(--border);
 }
 
-.btn-ghost:hover {
+.btn-ghost:hover:not(:disabled) {
   background: var(--surface-hover);
   border-color: var(--border-strong);
+  transform: translateY(-1px);
+}
+
+/* Staggered entrance for grids of cards — set --stagger: <index> per item. */
+.stagger-in {
+  opacity: 0;
+  animation: stagger-in var(--dur-med) var(--ease-smooth) forwards;
+  animation-delay: calc(var(--stagger, 0) * 45ms);
+}
+
+@keyframes stagger-in {
+  from {
+    opacity: 0;
+    transform: translateY(10px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
 }
 
 .visually-hidden {

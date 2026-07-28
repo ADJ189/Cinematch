@@ -15,6 +15,12 @@
   opacity: 0.55;
   filter: blur(0.5px);
   pointer-events: none;
+  transition: opacity var(--dur-med) var(--ease-smooth);
+}
+
+:root[data-theme='light'] .landing-canvas {
+  opacity: 0.28;
+  mix-blend-mode: multiply;
 }
 
 .landing-content {

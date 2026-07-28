@@ -1,0 +1,116 @@
+.app-header {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  width: 100%;
+  height: var(--header-height);
+  backdrop-filter: blur(14px) saturate(140%);
+  -webkit-backdrop-filter: blur(14px) saturate(140%);
+  background: color-mix(in srgb, var(--bg-0) 72%, transparent);
+  border-bottom: 1px solid var(--border);
+  animation: header-in var(--dur-slow) var(--ease-smooth);
+}
+
+@keyframes header-in {
+  from {
+    opacity: 0;
+    transform: translateY(-8px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.app-header-inner {
+  max-width: var(--content-width);
+  margin: 0 auto;
+  height: 100%;
+  padding: 0 clamp(16px, 4vw, 32px);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.app-brand {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font-family: var(--font-display);
+  font-weight: 700;
+  font-size: 16px;
+  letter-spacing: -0.01em;
+  color: var(--text-primary);
+  text-decoration: none;
+}
+
+.app-brand img {
+  filter: drop-shadow(0 0 6px rgba(167, 139, 250, 0.35));
+}
+
+.app-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.theme-toggle {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  font-size: 15px;
+  transition: transform var(--dur-fast) var(--ease-spring), border-color var(--dur-fast), background var(--dur-fast);
+}
+
+.theme-toggle:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+  transform: rotate(-12deg) scale(1.05);
+}
+
+.app-header-link {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  padding: 8px 14px;
+  border-radius: var(--radius-pill);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 500;
+  text-decoration: none;
+  transition: transform var(--dur-fast) var(--ease-spring), border-color var(--dur-fast), background var(--dur-fast);
+}
+
+.app-header-link:hover {
+  border-color: var(--border-strong);
+  background: var(--surface-hover);
+  transform: translateY(-1px);
+}
+
+.gh-icon {
+  display: inline-flex;
+}
+
+@media (max-width: 480px) {
+  .app-header-link-label {
+    display: none;
+  }
+
+  .app-header-link {
+    padding: 8px;
+    width: 36px;
+    height: 36px;
+    justify-content: center;
+  }
+}
+
+.screen-host {
+  min-height: calc(100dvh - var(--header-height));
+}

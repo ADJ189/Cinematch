@@ -1,10 +1,12 @@
 :root {
-  /* Fonts */
-  --font-display: 'Bricolage Grotesque', ui-sans-serif, system-ui, sans-serif;
+  /* Fonts — Sora for display (a clean geometric grotesque that reads as
+     professional/product-grade rather than the previous Bricolage
+     Grotesque's quirkier, more editorial character), Inter for body copy. */
+  --font-display: 'Sora', ui-sans-serif, system-ui, sans-serif;
   --font-body: 'Inter', ui-sans-serif, system-ui, sans-serif;
   --font-mono: 'JetBrains Mono', ui-monospace, monospace;
 
-  /* Surfaces */
+  /* Surfaces — dark (default) */
   --bg-0: #07050f;
   --bg-1: #0d0a1a;
   --bg-2: #150f28;
@@ -12,6 +14,7 @@
   --surface-hover: #221a3d;
   --border: rgba(167, 139, 250, 0.14);
   --border-strong: rgba(167, 139, 250, 0.3);
+  --overlay: rgba(7, 5, 15, 0.72);
 
   /* Text */
   --text-primary: #f4f2fb;
@@ -29,6 +32,7 @@
 
   /* Gradient */
   --gradient-match: linear-gradient(135deg, var(--violet) 0%, var(--cyan) 100%);
+  --gradient-warm: linear-gradient(135deg, var(--pink) 0%, var(--amber) 100%);
 
   /* Motion */
   --ease-spring: cubic-bezier(0.34, 1.56, 0.64, 1);
@@ -43,6 +47,31 @@
   --radius-lg: 24px;
   --radius-pill: 999px;
   --content-width: 1120px;
+  --header-height: 60px;
+}
+
+/* Light theme — toggled via data-theme="light" on <html>, persisted in
+   localStorage (see src/lib/theme.ts). Same token names throughout the
+   app, so no component CSS needs to know which theme is active. */
+:root[data-theme='light'] {
+  --bg-0: #faf9fd;
+  --bg-1: #f3f1fa;
+  --bg-2: #ece8f7;
+  --surface: #ffffff;
+  --surface-hover: #f4f1fc;
+  --border: rgba(124, 92, 240, 0.16);
+  --border-strong: rgba(124, 92, 240, 0.32);
+  --overlay: rgba(20, 15, 40, 0.5);
+
+  --text-primary: #1c1730;
+  --text-secondary: #5c5578;
+  --text-muted: #8b84a6;
+
+  --violet: #7c5cf0;
+  --violet-dim: #6a45e6;
+  --cyan: #0891a8;
+  --pink: #db2f7f;
+  --amber: #b45309;
 }
 
 @media (prefers-reduced-motion: reduce) {

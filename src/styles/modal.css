@@ -1,0 +1,113 @@
+.modal-overlay {
+  position: fixed;
+  inset: 0;
+  z-index: 100;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: var(--overlay);
+  backdrop-filter: blur(6px);
+  -webkit-backdrop-filter: blur(6px);
+  animation: overlay-in var(--dur-med) var(--ease-smooth);
+}
+
+@keyframes overlay-in {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+.modal-card {
+  position: relative;
+  width: 100%;
+  max-width: 560px;
+  max-height: 88vh;
+  overflow-y: auto;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-lg);
+  box-shadow: 0 24px 60px rgba(0, 0, 0, 0.4);
+  animation: modal-in var(--dur-med) var(--ease-spring);
+}
+
+@keyframes modal-in {
+  from {
+    opacity: 0;
+    transform: translateY(16px) scale(0.97);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.modal-close {
+  position: absolute;
+  top: 12px;
+  right: 12px;
+  z-index: 2;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--radius-pill);
+  background: rgba(7, 5, 15, 0.55);
+  color: #fff;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 15px;
+  transition: transform var(--dur-fast) var(--ease-spring), background var(--dur-fast);
+}
+
+.modal-close:hover {
+  background: rgba(7, 5, 15, 0.8);
+  transform: rotate(90deg);
+}
+
+.modal-hero {
+  height: 200px;
+  background-size: cover;
+  background-position: center 20%;
+  background-color: var(--surface-hover);
+  border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+}
+
+.modal-body {
+  padding: 20px 24px 26px;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.modal-match {
+  align-self: flex-start;
+}
+
+.modal-meta {
+  font-size: 13px;
+  text-transform: capitalize;
+}
+
+.modal-ratings {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  color: var(--text-primary);
+}
+
+.modal-overview {
+  font-size: 14px;
+  line-height: 1.6;
+}
+
+.modal-actions {
+  margin-top: 4px;
+}
+
+.modal-rate-label {
+  font-size: 12px;
+  color: var(--text-muted);
+  margin-top: 6px;
+}
