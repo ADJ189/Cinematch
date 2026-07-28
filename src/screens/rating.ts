@@ -40,8 +40,9 @@ export function renderRating(root: HTMLElement): () => void {
 
   mount(root, screen);
 
-  for (const seed of RATING_SEEDS) {
+  RATING_SEEDS.forEach((seed, i) => {
     const card = buildCard(seed.id, seed.title, seed.year, null);
+    card.style.setProperty('--i', String(i));
     cards.set(seed.id, card);
     grid.appendChild(card);
 
@@ -51,7 +52,7 @@ export function renderRating(root: HTMLElement): () => void {
         if (res?.posterPath) setCardPoster(card, posterUrl(res.posterPath, 'md'));
       })
       .catch(() => {});
-  }
+  });
 
   syncFromStore();
 
