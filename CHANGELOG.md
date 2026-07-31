@@ -2,6 +2,28 @@
 
 All notable changes to this project are documented here.
 
+## [3.2.0] — Adaptive quiz, genre-weighted calibration, resource-aware AI, perf pass
+
+### Fixed
+- **On-device AI still failed on some devices/networks.** A single hardcoded CDN and a single model repo meant any one of: that CDN being blocked by a network/proxy, a transient CDN outage, or that specific Hugging Face repo being briefly rate-limited, took the whole feature down. `ai-worker.ts` now tries a short list of CDNs for the library itself and a short list of model repos per resource tier, in order, until one combination actually finishes loading. WASM execution is now explicitly multi-threaded (sized to leave one core free for the UI) instead of single-threaded.
+- **Posters appearing not to load.** Cards used to sit as blank/empty boxes with no feedback while a poster image was still in flight. `dom.ts`'s new `buildPosterImage()` keeps a visible skeleton shimmer until the image actually finishes decoding, then crossfades it in; a failed image falls back to a letter placeholder instead of staying blank. Off-screen posters use native lazy-loading so they don't compete with the first results batch for bandwidth.
+- Recommendations no longer stall on a cold connection: TMDB requests now carry a 9s timeout + one retry (`tmdbFetch`), instead of an in-flight request hanging indefinitely on a flaky mobile network.
+
+### Added
+- **Resource-aware model selection.** `ai-worker.ts` picks a tier (model + quantization + device) from `navigator.deviceMemory`, `hardwareConcurrency`, WebGPU availability, and mobile detection — a 16-core desktop with a GPU and a budget phone no longer get the identical request.
+- **Genre-weighted taste calibration** (`src/lib/rating-pool.ts`). Picking a mood in the quiz now pulls ~75% of the rating step's titles live from TMDB in that genre (diversified by vibe, capped by vote count), instead of always showing the same fixed 15 regardless of answer.
+- **Adaptive quiz.** The vibe question filters out options that would directly contradict the mood just picked (e.g. "horror" removes "light & fun" / "feel-good"); previously-selected options are highlighted when navigating back.
+- **Anime / cartoon / sitcom as their own dimension** — a new `contentType` quiz question, separate from mood/tone, mapped to TMDB's Animation genre (split into anime vs. cartoon by original language) and TV Comedy for sitcom (which also forces series-only, since "sitcom movie" isn't a meaningful TMDB query).
+- **Precise / Grouped results toggle** — Grouped is the original wide, forgiving pool; Precise holds results to a 68%+ match floor and returns fewer, tighter picks.
+- **Debounced in-place rating.** Rating a result card updates its stars immediately but waits ~1.6s (resetting on each new tap) before re-curating the grid, with a "Curating your picks…" indicator — avoids a full re-render on every single click during a quick rating streak.
+- Boot-time loading spinner (inlined critical CSS in `index.html`, dismissed by `main.ts` once the first screen mounts) for the gap between first paint and the JS bundle finishing parse/exec on slower connections/devices.
+- `preconnect` hints for the TMDB API and image CDN.
+
+### Changed
+- The landing page's fluid background sim now runs at a lower grid resolution on mobile or ≤4-core devices — it's CPU-bound Canvas2D, not GPU work, so full resolution was a real jank/battery cost on phones.
+- Results toolbar restructured: the mode toggle is now a visually distinct segmented control instead of competing with action buttons in one row; buttons stack full-width on screens under 640px instead of squeezing.
+- `engine.processRatings` signal source and `rating.ts`'s seed list are now read from the store (`ratingSeeds`/`ratingSignals`), populated by whichever pool (static or genre-weighted) actually got shown and rated.
+
 ## [3.1.0] — Reliability, refinement loop, and a design pass
 
 ### Fixed

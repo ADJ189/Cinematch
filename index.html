@@ -10,6 +10,8 @@
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
     <link rel="preconnect" href="https://fonts.googleapis.com" />
     <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link rel="preconnect" href="https://api.themoviedb.org" />
+    <link rel="preconnect" href="https://image.tmdb.org" crossorigin />
     <link
       href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
       rel="stylesheet"
@@ -27,8 +29,46 @@
         } catch (e) {}
       })();
     </script>
+    <style>
+      /* Critical, inlined so it paints before the app's own CSS has even
+         been requested — covers the gap between first paint and the JS
+         bundle finishing parse/exec, which on a slow connection or a
+         low-end phone can be a very visible blank screen otherwise.
+         Removed by main.ts once the first screen has actually mounted. */
+      #boot-loader {
+        position: fixed;
+        inset: 0;
+        z-index: 9999;
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        background: #07050f;
+        transition: opacity 280ms ease;
+      }
+      html[data-theme='light'] #boot-loader {
+        background: #faf9fd;
+      }
+      #boot-loader.hidden {
+        opacity: 0;
+        pointer-events: none;
+      }
+      #boot-loader svg {
+        animation: boot-spin 0.85s linear infinite;
+      }
+      @keyframes boot-spin {
+        to {
+          transform: rotate(360deg);
+        }
+      }
+    </style>
   </head>
   <body>
+    <div id="boot-loader" aria-hidden="true">
+      <svg width="34" height="34" viewBox="0 0 34 34" fill="none">
+        <circle cx="17" cy="17" r="14" stroke="#2a2350" stroke-width="3" />
+        <path d="M31 17a14 14 0 0 0-14-14" stroke="#a78bfa" stroke-width="3" stroke-linecap="round" />
+      </svg>
+    </div>
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
   </body>
