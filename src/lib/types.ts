@@ -1,11 +1,18 @@
 export type Screen = 'landing' | 'quiz' | 'rating' | 'results';
 
-export type Genre = 'thriller' | 'comedy' | 'drama' | 'scifi' | 'horror' | 'adventure';
+export type Genre = 'thriller' | 'comedy' | 'drama' | 'scifi' | 'horror' | 'adventure' | 'anime' | 'cartoon' | 'sitcom';
 export type Vibe = 'dark' | 'light' | 'intellectual' | 'feelgood' | 'epic';
 export type Era = 'classic' | 'mid' | 'recent' | 'any';
 export type Format = 'movie' | 'series' | 'both';
 export type Company = 'solo' | 'date' | 'friends' | 'family';
 export type Language = 'english' | 'subtitles' | 'any_lang';
+/** A separate style dimension from `mood` — lets someone ask specifically
+ * for anime, Western animation, or sitcom-style comedy rather than
+ * overloading the tone question. 'live_action' means no preference here. */
+export type ContentType = 'anime' | 'cartoon' | 'sitcom' | 'live_action';
+/** grouped = a wider, more forgiving pool (default). precise = fewer titles,
+ * held to a higher match-score bar — quality over quantity. */
+export type ResultsMode = 'grouped' | 'precise';
 
 export interface QuizAnswers {
   mood?: Genre;
@@ -14,6 +21,7 @@ export interface QuizAnswers {
   vibe?: Vibe;
   company?: Company;
   language?: Language;
+  contentType?: ContentType;
 }
 
 export interface QuizOption {
@@ -27,6 +35,10 @@ export interface QuizQuestion {
   question: string;
   subtitle: string;
   options: QuizOption[];
+  /** Narrows/reorders this question's options based on answers already
+   * given, so a later question doesn't offer something that contradicts
+   * or just restates an earlier pick (e.g. "light & fun" after "horror"). */
+  filterOptions?: (answers: QuizAnswers, options: QuizOption[]) => QuizOption[];
 }
 
 /** A title as returned live from TMDB's discover/search endpoints. */
@@ -81,6 +93,8 @@ export interface AppState {
   screen: Screen;
   quizAnswers: QuizAnswers;
   ratings: Record<number, RatingValue>;
+  ratingSeeds: RatingSeed[];
+  ratingSignals: Record<number, string[]>;
   results: ScoredItem[];
   loading: boolean;
   error: string | null;

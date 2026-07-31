@@ -34,6 +34,12 @@ export class RecommendationEngine {
     this.answers = answers;
     if (answers.mood) this.genre[answers.mood] = (this.genre[answers.mood] ?? 0) + 1.0;
     if (answers.vibe) this.vibe[answers.vibe] = (this.vibe[answers.vibe] ?? 0) + 1.0;
+    if (answers.contentType && answers.contentType !== 'live_action') {
+      // An explicit style pick (anime/cartoon/sitcom) is more specific than
+      // the mood tap, so it's weighted a little higher.
+      const g = answers.contentType;
+      this.genre[g] = (this.genre[g] ?? 0) + 1.2;
+    }
   }
 
   /**
@@ -115,6 +121,14 @@ export class RecommendationEngine {
     }
     if (this.answers.vibe && item.vibe.includes(this.answers.vibe)) {
       out.push(`Has that ${this.answers.vibe} vibe`);
+    }
+    if (
+      this.answers.contentType &&
+      this.answers.contentType !== 'live_action' &&
+      item.genres.includes(this.answers.contentType as Genre)
+    ) {
+      const label = this.answers.contentType === 'sitcom' ? 'sitcom' : this.answers.contentType;
+      out.push(`It's the ${label} pick you asked for`);
     }
     if (item.voteAverage >= 8) {
       out.push(`Highly rated (${item.voteAverage.toFixed(1)}/10)`);

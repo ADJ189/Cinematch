@@ -7,11 +7,12 @@
 // Auth: set VITE_TMDB_TOKEN (v4 read access token, preferred) or
 // VITE_TMDB_KEY (v3 api key) in a local .env file. Neither is committed.
 
-import type { CatalogItem, Era, Format, Genre, Language, Vibe } from './types';
+import type { CatalogItem, ContentType, Era, Format, Genre, Language, Vibe } from './types';
 
 const API_BASE = 'https://api.themoviedb.org/3';
 const IMAGE_BASE = 'https://image.tmdb.org/t/p/';
-const SIZES = { sm: 'w185', md: 'w342', lg: 'w500', xl: 'w780' } as const;
+const SIZES = { xs: 'w92', sm: 'w185', md: 'w342', lg: 'w500', xl: 'w780' } as const;
+const REQUEST_TIMEOUT_MS = 9_000;
 
 const TOKEN = import.meta.env.VITE_TMDB_TOKEN ?? '';
 const KEY = import.meta.env.VITE_TMDB_KEY ?? '';
@@ -33,21 +34,43 @@ export function tmdbDetailsUrl(id: number, tmdbType: 'movie' | 'tv'): string {
   return `https://www.themoviedb.org/${tmdbType}/${id}`;
 }
 
+/**
+ * Fetches with a hard timeout and one retry. Mobile networks in particular
+ * stall requests far more often than they hard-fail them — without a
+ * timeout, a single slow request could leave the results screen hanging
+ * indefinitely even though five other requests already came back fine.
+ */
 async function tmdbFetch<T>(path: string, params: Record<string, string> = {}): Promise<T> {
   const url = new URL(`${API_BASE}${path}`);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
   if (!TOKEN && KEY) url.searchParams.set('api_key', KEY);
 
-  const res = await fetch(url.toString(), {
-    headers: TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {},
-  });
-  if (!res.ok) throw new Error(`TMDB ${res.status}: ${path}`);
-  return res.json() as Promise<T>;
+  let lastErr: unknown;
+  for (let attempt = 0; attempt < 2; attempt++) {
+    const controller = new AbortController();
+    const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
+    try {
+      const res = await fetch(url.toString(), {
+        headers: TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {},
+        signal: controller.signal,
+      });
+      clearTimeout(timer);
+      if (!res.ok) throw new Error(`TMDB ${res.status}: ${path}`);
+      return (await res.json()) as T;
+    } catch (err) {
+      clearTimeout(timer);
+      lastErr = err;
+    }
+  }
+  throw lastErr instanceof Error ? lastErr : new Error(`TMDB request failed: ${path}`);
 }
 
 // ── Genre mapping ────────────────────────────────────────────────────────
 // TMDB genre ids differ slightly between movie and tv. We map both onto our
-// small internal vocabulary so quiz answers can filter either.
+// small internal vocabulary so quiz answers can filter either. Genre 16
+// (Animation, same id on both movie and tv) is handled separately below
+// since which internal tag it becomes — anime vs. cartoon — depends on
+// original language, not the id alone.
 const MOVIE_GENRE_MAP: Record<number, Genre> = {
   53: 'thriller', 9648: 'thriller',
   35: 'comedy',
@@ -66,18 +89,32 @@ const TV_GENRE_MAP: Record<number, Genre> = {
   10759: 'adventure',
 };
 
+const ANIMATION_GENRE_ID = 16;
+const TV_COMEDY_GENRE_ID = 35;
+
 // Reverse lookup for building TMDB `with_genres` discover filters.
 const GENRE_TO_TMDB_MOVIE: Record<Genre, number> = {
   thriller: 53, comedy: 35, drama: 18, scifi: 878, horror: 27, adventure: 12,
+  anime: ANIMATION_GENRE_ID, cartoon: ANIMATION_GENRE_ID, sitcom: TV_COMEDY_GENRE_ID,
 };
 const GENRE_TO_TMDB_TV: Record<Genre, number> = {
   thriller: 9648, comedy: 35, drama: 18, scifi: 10765, horror: 27, adventure: 10759,
+  anime: ANIMATION_GENRE_ID, cartoon: ANIMATION_GENRE_ID, sitcom: TV_COMEDY_GENRE_ID,
 };
 
-function mapGenres(ids: number[], type: 'movie' | 'tv'): Genre[] {
+function mapGenres(ids: number[], type: 'movie' | 'tv', originalLanguage: string): Genre[] {
   const map = type === 'movie' ? MOVIE_GENRE_MAP : TV_GENRE_MAP;
   const out = new Set<Genre>();
   for (const id of ids) {
+    if (id === ANIMATION_GENRE_ID) {
+      out.add(originalLanguage === 'ja' ? 'anime' : 'cartoon');
+      continue;
+    }
+    if (type === 'tv' && id === TV_COMEDY_GENRE_ID) {
+      out.add('comedy');
+      out.add('sitcom');
+      continue;
+    }
     const g = map[id];
     if (g) out.add(g);
   }
@@ -89,10 +126,13 @@ function mapGenres(ids: number[], type: 'movie' | 'tv'): Genre[] {
 function inferVibe(genres: Genre[], voteAverage: number, popularity: number): Vibe[] {
   const out = new Set<Vibe>();
   if (genres.includes('horror') || genres.includes('thriller')) out.add('dark');
-  if (genres.includes('comedy')) out.add('light');
+  if (genres.includes('comedy') || genres.includes('sitcom')) out.add('light');
   if (genres.includes('drama') && voteAverage >= 7.5) out.add('intellectual');
-  if (genres.includes('comedy') || (genres.includes('drama') && voteAverage >= 7)) out.add('feelgood');
-  if (genres.includes('adventure') || genres.includes('scifi')) out.add('epic');
+  if (genres.includes('comedy') || genres.includes('sitcom') || (genres.includes('drama') && voteAverage >= 7)) {
+    out.add('feelgood');
+  }
+  if (genres.includes('adventure') || genres.includes('scifi') || genres.includes('anime')) out.add('epic');
+  if (genres.includes('cartoon')) out.add('light');
   if (out.size === 0) out.add(voteAverage >= 7.5 ? 'intellectual' : 'light');
   void popularity;
   return [...out];
@@ -127,7 +167,7 @@ function toCatalogItem(raw: TmdbRawResult, tmdbType: 'movie' | 'tv'): CatalogIte
   const year = Number(dateStr.slice(0, 4));
   if (!year) return null;
 
-  const genres = mapGenres(raw.genre_ids ?? [], tmdbType);
+  const genres = mapGenres(raw.genre_ids ?? [], tmdbType, raw.original_language);
   return {
     id: raw.id,
     title,
@@ -154,6 +194,17 @@ export interface DiscoverFilters {
   era?: Era;
   format?: Format;
   language?: Language;
+  contentType?: ContentType;
+}
+
+/** Genre ids implied by contentType, on top of whatever `mood` already set.
+ * Combined with mood's id via AND (TMDB's comma-joined `with_genres`) — e.g.
+ * mood=comedy + contentType=cartoon asks for animated comedies specifically,
+ * not just "anything animated OR anything funny". */
+function contentTypeGenreId(contentType: ContentType | undefined): number | null {
+  if (contentType === 'anime' || contentType === 'cartoon') return ANIMATION_GENRE_ID;
+  if (contentType === 'sitcom') return TV_COMEDY_GENRE_ID;
+  return null;
 }
 
 /**
@@ -171,7 +222,9 @@ export async function discoverCandidates(
   filters: DiscoverFilters,
   pageOffset = 0
 ): Promise<CatalogItem[]> {
-  const wantMovies = filters.format !== 'series';
+  // Sitcom is inherently a TV concept — force series-only regardless of the
+  // quiz's format answer rather than wasting a request on "sitcom movies".
+  const wantMovies = filters.format !== 'series' && filters.contentType !== 'sitcom';
   const wantSeries = filters.format !== 'movie';
 
   const eraRange: Record<Era, [string, string] | null> = {
@@ -181,6 +234,8 @@ export async function discoverCandidates(
     any: null,
   };
 
+  const extraGenreId = contentTypeGenreId(filters.contentType);
+
   const jobs: Promise<CatalogItem[]>[] = [];
 
   if (wantMovies) {
@@ -189,13 +244,18 @@ export async function discoverCandidates(
       'vote_count.gte': '150',
       include_adult: 'false',
     };
-    if (filters.mood) params.with_genres = String(GENRE_TO_TMDB_MOVIE[filters.mood]);
+    const genreIds = new Set<number>();
+    if (filters.mood) genreIds.add(GENRE_TO_TMDB_MOVIE[filters.mood]);
+    if (extraGenreId) genreIds.add(extraGenreId);
+    if (genreIds.size) params.with_genres = [...genreIds].join(',');
+
     const range = filters.era ? eraRange[filters.era] : null;
     if (range) {
       params['primary_release_date.gte'] = range[0];
       params['primary_release_date.lte'] = range[1];
     }
-    if (filters.language === 'english') params.with_original_language = 'en';
+    if (filters.contentType === 'anime') params.with_original_language = 'ja';
+    else if (filters.language === 'english') params.with_original_language = 'en';
 
     jobs.push(fetchDiscoverPages('/discover/movie', params, 'movie', pageOffset));
   }
@@ -206,13 +266,18 @@ export async function discoverCandidates(
       'vote_count.gte': '100',
       include_adult: 'false',
     };
-    if (filters.mood) params.with_genres = String(GENRE_TO_TMDB_TV[filters.mood]);
+    const genreIds = new Set<number>();
+    if (filters.mood) genreIds.add(GENRE_TO_TMDB_TV[filters.mood]);
+    if (extraGenreId) genreIds.add(extraGenreId);
+    if (genreIds.size) params.with_genres = [...genreIds].join(',');
+
     const range = filters.era ? eraRange[filters.era] : null;
     if (range) {
       params['first_air_date.gte'] = range[0];
       params['first_air_date.lte'] = range[1];
     }
-    if (filters.language === 'english') params.with_original_language = 'en';
+    if (filters.contentType === 'anime') params.with_original_language = 'ja';
+    else if (filters.language === 'english') params.with_original_language = 'en';
 
     jobs.push(fetchDiscoverPages('/discover/tv', params, 'tv', pageOffset));
   }

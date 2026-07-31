@@ -4,7 +4,8 @@
 // no reactivity compiler, no virtual DOM. Screens subscribe and re-render
 // themselves on change.
 
-import type { AppState, QuizAnswers, RatingValue, ScoredItem, Screen } from './types';
+import { RATING_SEEDS, SEED_SIGNALS } from '../data/rating-seeds';
+import type { AppState, QuizAnswers, RatingValue, RatingSeed, ScoredItem, Screen } from './types';
 
 type Listener = (state: AppState) => void;
 
@@ -13,6 +14,8 @@ function createStore() {
     screen: 'landing',
     quizAnswers: {},
     ratings: {},
+    ratingSeeds: RATING_SEEDS,
+    ratingSignals: SEED_SIGNALS,
     results: [],
     loading: false,
     error: null,
@@ -47,6 +50,13 @@ function createStore() {
       state = { ...state, ratings: { ...state.ratings, ...ratings } };
       notify();
     },
+    /** Set once the rating screen finishes building its (possibly
+     * genre-weighted) calibration list, so the results engine scores
+     * against the same seeds/signals the user actually rated. */
+    setRatingPool(seeds: RatingSeed[], signals: Record<number, string[]>) {
+      state = { ...state, ratingSeeds: seeds, ratingSignals: signals };
+      notify();
+    },
     setLoading(loading: boolean) {
       state = { ...state, loading };
       notify();
@@ -60,7 +70,16 @@ function createStore() {
       notify();
     },
     reset() {
-      state = { screen: 'landing', quizAnswers: {}, ratings: {}, results: [], loading: false, error: null };
+      state = {
+        screen: 'landing',
+        quizAnswers: {},
+        ratings: {},
+        ratingSeeds: RATING_SEEDS,
+        ratingSignals: SEED_SIGNALS,
+        results: [],
+        loading: false,
+        error: null,
+      };
       notify();
     },
   };

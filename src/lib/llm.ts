@@ -25,7 +25,7 @@ const LOAD_TIMEOUT_MS = 60_000;
 const GENERATE_TIMEOUT_MS = 20_000;
 
 type WorkerOutMsg =
-  | { type: 'ready'; device?: string }
+  | { type: 'ready'; device?: string; tier?: string; model?: string }
   | { type: 'progress'; pct: number }
   | { type: 'error'; message: string }
   | { type: 'result'; id: number; text: string | null };
@@ -61,7 +61,9 @@ function getWorker(): Worker {
       loadWaiters?.onProgress?.(msg.pct);
     } else if (msg.type === 'ready') {
       status = 'ready';
-      statusDetail = msg.device === 'webgpu' ? 'Running on WebGPU' : 'Running on WASM (CPU)';
+      const speed = msg.device === 'webgpu' ? 'WebGPU' : 'WASM (CPU)';
+      const quality = msg.tier === 'low' ? 'lightweight' : msg.tier === 'mid' ? 'standard' : 'full-quality';
+      statusDetail = `Running on ${speed} — ${quality} model`;
       loadWaiters?.resolve();
       loadWaiters = null;
     } else if (msg.type === 'error') {
@@ -80,6 +82,11 @@ function getWorker(): Worker {
     statusDetail = 'The on-device model crashed unexpectedly.';
     loadWaiters?.reject(new Error(statusDetail));
     loadWaiters = null;
+    // The worker instance may be left in a broken state after an uncaught
+    // error — drop it so the next enableLocalAi() call starts a clean one
+    // instead of retrying against something already dead.
+    worker?.terminate();
+    worker = null;
   });
 
   return worker;
