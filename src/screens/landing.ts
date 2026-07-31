@@ -50,7 +50,17 @@ export function renderLanding(root: HTMLElement): () => void {
   requestAnimationFrame(async () => {
     if (window.matchMedia('(prefers-reduced-motion: reduce)').matches) return;
     const { FluidSim } = await import('../lib/fluid');
-    const sim = new FluidSim(canvas);
+
+    // This sim runs on the CPU (Canvas2D, not WebGL/WebGPU), so its cost
+    // scales directly with grid resolution. Full resolution is fine on a
+    // desktop but a real jank/battery cost on phones — scale it down for
+    // mobile or low-core devices instead of shipping one fixed cost to
+    // every device.
+    const cores = navigator.hardwareConcurrency || 4;
+    const isMobile = /Android|iPhone|iPad|iPod|Mobi/i.test(navigator.userAgent);
+    const lite = isMobile || cores <= 4;
+
+    const sim = new FluidSim(canvas, lite ? { N: 40, iterations: 4 } : undefined);
     fluidCleanup = () => sim.destroy();
   });
 

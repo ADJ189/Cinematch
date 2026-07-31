@@ -1,21 +1,29 @@
-import { SEED_SIGNALS, RATING_SEEDS } from '../data/rating-seeds';
 import { RecommendationEngine } from '../lib/engine';
-import { el, mount } from '../lib/dom';
+import { buildPosterImage, el, mount } from '../lib/dom';
 import { store } from '../lib/store';
 import { discoverCandidates, isTmdbConfigured, posterUrl, backdropUrl, tmdbDetailsUrl } from '../lib/tmdb';
 import { fetchExternalRatings, isOmdbConfigured } from '../lib/omdb';
 import { enableLocalAi, explainPick, getLlmStatus, getLlmStatusDetail } from '../lib/llm';
-import type { CatalogItem, RatingValue, ScoredItem } from '../lib/types';
+import type { CatalogItem, RatingValue, ResultsMode, ScoredItem } from '../lib/types';
 
-const BATCH_SIZE = 24;
+const GROUPED_SIZE = 24;
+const PRECISE_SIZE = 10;
+const PRECISE_MIN_MATCH = 68; // precise mode only keeps titles at/above this match%
 const AI_REASON_LIMIT = 8;
 const MAX_PAGE_OFFSET = 18; // ~6 refreshes of live TMDB pages before we start reusing the pool
+// A rating changes the whole grid — give it a beat before recomputing so a
+// quick run of taps doesn't re-render on every single click, and so the
+// change doesn't feel jarringly instant. Long enough to read as deliberate,
+// short enough not to feel like a delay.
+const RATE_DEBOUNCE_MS = 1600;
 
 function summarizeQuiz(state: ReturnType<typeof store.getState>): string {
-  const { mood, vibe, era, company } = state.quizAnswers;
-  return [mood, vibe, era !== 'any' ? era : null, company]
-    .filter(Boolean)
-    .join(', ') || 'no strong preference stated';
+  const { mood, vibe, era, company, contentType } = state.quizAnswers;
+  return (
+    [mood, vibe, era !== 'any' ? era : null, contentType !== 'live_action' ? contentType : null, company]
+      .filter(Boolean)
+      .join(', ') || 'no strong preference stated'
+  );
 }
 
 export function renderResults(root: HTMLElement): () => void {
@@ -27,17 +35,25 @@ export function renderResults(root: HTMLElement): () => void {
   // so restarting the flow starts clean.
   const quizAnswers = store.getState().quizAnswers;
   const seedRatings = store.getState().ratings;
+  const ratingSeeds = store.getState().ratingSeeds;
+  const ratingSignals = store.getState().ratingSignals;
   const resultRatings = new Map<number, RatingValue>();
   const itemsById = new Map<number, CatalogItem>();
   const shownIds = new Set<number>();
   let allCandidates: CatalogItem[] = [];
   let pageOffset = 0;
   let refreshing = false;
+  let mode: ResultsMode = 'grouped';
+  let rateTimer: number | null = null;
 
   const screen = el('div', { class: 'screen results' });
   mount(root, screen);
   drawLoading();
   void run();
+
+  function targetCount(): number {
+    return mode === 'precise' ? PRECISE_SIZE : GROUPED_SIZE;
+  }
 
   async function run() {
     if (!isTmdbConfigured) {
@@ -51,7 +67,7 @@ export function renderResults(root: HTMLElement): () => void {
       pageOffset = 3;
       mergeCandidates(candidates);
 
-      const batch = rescore(BATCH_SIZE);
+      const batch = rescore(targetCount());
       if (cancelled) return;
 
       if (batch.length === 0) {
@@ -79,6 +95,7 @@ export function renderResults(root: HTMLElement): () => void {
       era: quizAnswers.era,
       format: quizAnswers.format,
       language: quizAnswers.language,
+      contentType: quizAnswers.contentType,
     };
   }
 
@@ -94,19 +111,23 @@ export function renderResults(root: HTMLElement): () => void {
   /** Rebuilds the engine from scratch each time — quiz + seed ratings +
    * every result rating collected so far — and returns the next unseen
    * batch. Titles the user has directly rated are excluded from the pool:
-   * they've already gotten a verdict, repeating them adds nothing. */
+   * they've already gotten a verdict, repeating them adds nothing.
+   * In precise mode, the pool is also held to a minimum match% so a
+   * thinner, more confident list beats a padded-out one. */
   function rescore(count: number): ScoredItem[] {
     const engine = new RecommendationEngine();
     engine.processQuiz(quizAnswers);
-    engine.processRatings(seedRatings, RATING_SEEDS, SEED_SIGNALS);
+    engine.processRatings(seedRatings, ratingSeeds, ratingSignals);
     for (const [id, rating] of resultRatings) {
       const item = itemsById.get(id);
       if (item) engine.processResultRating(item, rating);
     }
 
     const pool = allCandidates.filter((c) => !resultRatings.has(c.id));
-    const scored = engine.getResults(pool, SEED_SIGNALS);
-    const unseen = scored.filter((r) => !shownIds.has(r.id));
+    const scored = engine.getResults(pool, ratingSignals);
+    let unseen = scored.filter((r) => !shownIds.has(r.id));
+    if (mode === 'precise') unseen = unseen.filter((r) => r.matchPct >= PRECISE_MIN_MATCH);
+
     const batch = unseen.slice(0, count);
     for (const item of batch) shownIds.add(item.id);
     return batch;
@@ -130,7 +151,7 @@ export function renderResults(root: HTMLElement): () => void {
     btn.textContent = 'Finding more…';
 
     try {
-      let batch = rescore(BATCH_SIZE);
+      let batch = rescore(targetCount());
 
       // Not enough fresh titles left in the pool we already have — pull a
       // later page window from TMDB instead of re-showing the same list.
@@ -139,14 +160,14 @@ export function renderResults(root: HTMLElement): () => void {
         if (cancelled) return;
         pageOffset += 3;
         mergeCandidates(more);
-        batch = rescore(BATCH_SIZE);
+        batch = rescore(targetCount());
       }
 
       // Truly exhausted the live pool for this combination — allow repeats
       // rather than showing an empty screen.
       if (batch.length === 0) {
         shownIds.clear();
-        batch = rescore(BATCH_SIZE);
+        batch = rescore(targetCount());
       }
 
       await enrichWithExternalRatings(batch);
@@ -162,26 +183,69 @@ export function renderResults(root: HTMLElement): () => void {
     }
   }
 
-  function onRateResult(item: ScoredItem, value: RatingValue) {
-    resultRatings.set(item.id, value);
-    const batch = rescore(BATCH_SIZE);
+  function setMode(next: ResultsMode) {
+    if (mode === next || refreshing) return;
+    mode = next;
+    // Switching bands is itself a fresh request — start the "seen" set
+    // over so precise mode can freely pick from titles a wider grouped
+    // batch already showed, and vice versa.
+    shownIds.clear();
+    const batch = rescore(targetCount());
     store.setResults(batch);
     draw(batch);
+  }
+
+  /** Updates the star buttons for one item wherever they currently appear
+   * (grid card, and the modal if it's open) — instant feedback — then
+   * debounces the actual re-curation so a burst of ratings doesn't
+   * re-render the whole grid on every tap. */
+  function onRateResult(item: ScoredItem, value: RatingValue) {
+    resultRatings.set(item.id, value);
+    updateStarVisual(item.id, value);
+    setCurating(true);
+
+    if (rateTimer !== null) window.clearTimeout(rateTimer);
+    rateTimer = window.setTimeout(() => {
+      rateTimer = null;
+      const batch = rescore(targetCount());
+      store.setResults(batch);
+      draw(batch);
+    }, RATE_DEBOUNCE_MS);
+  }
+
+  function updateStarVisual(itemId: number, value: RatingValue) {
+    screen.querySelectorAll<HTMLElement>(`[data-item="${itemId}"]`).forEach((row) => {
+      row.querySelectorAll<HTMLButtonElement>('.star').forEach((s, i) => s.classList.toggle('filled', i < value));
+    });
+  }
+
+  function setCurating(active: boolean) {
+    screen.querySelector('.curating-indicator')?.classList.toggle('visible', active);
   }
 
   function drawLoading() {
     const grid = el(
       'div',
       { class: 'results-grid' },
-      Array.from({ length: 8 }, () => el('div', { class: 'result-card skeleton-card' }, [
-        el('div', { class: 'result-poster skeleton' }),
-      ]))
+      Array.from({ length: 8 }, (_, i) =>
+        el('div', { class: 'result-card skeleton-card stagger-in', style: `--stagger: ${i}` }, [
+          el('div', { class: 'result-poster skeleton' }),
+        ])
+      )
     );
-    mount(screen, el('div', {}, [
-      el('h2', {}, ['Finding your matches…']),
-      el('p', {}, ['Pulling live results from TMDB and scoring against your answers.']),
-      grid,
-    ]));
+    mount(
+      screen,
+      el('div', {}, [
+        el('div', { class: 'loading-banner' }, [
+          el('span', { class: 'spinner', 'aria-hidden': 'true' }),
+          el('div', {}, [
+            el('h2', {}, ['Finding your matches…']),
+            el('p', {}, ['Pulling live results from TMDB and scoring against your answers.']),
+          ]),
+        ]),
+        grid,
+      ])
+    );
   }
 
   function drawConfigError() {
@@ -213,38 +277,60 @@ export function renderResults(root: HTMLElement): () => void {
       screen,
       el('div', { class: 'state-message' }, [
         el('h2', {}, ['No matches for this combination']),
-        el('p', {}, ['Try loosening the era or language filter.']),
+        el('p', {}, ['Try loosening the era or language filter, or switch to Grouped mode.']),
         el('button', { class: 'btn btn-ghost', onclick: () => store.setScreen('quiz') }, ['← Adjust answers']),
       ])
     );
   }
 
   function draw(results: ScoredItem[]) {
-    const aiBtn = el(
-      'button',
-      { class: 'btn btn-ghost' },
-      [llmButtonLabel()]
-    );
+    const aiBtn = el('button', { class: 'btn btn-ghost toolbar-btn' }, [llmButtonLabel()]);
     aiBtn.addEventListener('click', () => toggleLocalAi(aiBtn, results));
 
-    const differentBtn = el(
-      'button',
-      { class: 'btn btn-ghost' },
-      ['🔀 Show me different picks']
-    );
+    const differentBtn = el('button', { class: 'btn btn-ghost toolbar-btn' }, ['🔀 Different picks']);
     differentBtn.addEventListener('click', () => onDifferentPicks(differentBtn));
+
+    const modeToggle = el('div', { class: 'mode-toggle', role: 'tablist', 'aria-label': 'Results mode' }, [
+      el(
+        'button',
+        {
+          class: `mode-btn${mode === 'grouped' ? ' active' : ''}`,
+          role: 'tab',
+          'aria-selected': mode === 'grouped' ? 'true' : 'false',
+          onclick: () => setMode('grouped'),
+        },
+        ['Grouped']
+      ),
+      el(
+        'button',
+        {
+          class: `mode-btn${mode === 'precise' ? ' active' : ''}`,
+          role: 'tab',
+          'aria-selected': mode === 'precise' ? 'true' : 'false',
+          onclick: () => setMode('precise'),
+        },
+        ['Precise']
+      ),
+    ]);
 
     const ratedCount = resultRatings.size;
     const header = el('div', { class: 'results-header' }, [
       el('h2', {}, ['Your matches']),
-      el('p', {}, [
-        `${results.length} titles, ranked and scored against your answers.`,
+      el('p', { class: 'results-subline' }, [
+        mode === 'precise'
+          ? `${results.length} tightly-matched titles (${PRECISE_MIN_MATCH}%+ match).`
+          : `${results.length} titles, ranked and scored against your answers.`,
         ratedCount > 0 ? ` You've rated ${ratedCount} result${ratedCount === 1 ? '' : 's'} — picks keep adjusting.` : '',
+        ' ',
+        el('span', { class: 'curating-indicator' }, ['Curating your picks…']),
       ]),
-      el('div', { class: 'results-actions' }, [
-        differentBtn,
-        aiBtn,
-        el('button', { class: 'btn btn-ghost', onclick: restart }, ['Start over']),
+      el('div', { class: 'results-toolbar' }, [
+        modeToggle,
+        el('div', { class: 'toolbar-group' }, [
+          differentBtn,
+          aiBtn,
+          el('button', { class: 'btn btn-ghost toolbar-btn', onclick: restart }, ['Start over']),
+        ]),
       ]),
     ]);
 
@@ -263,8 +349,8 @@ export function renderResults(root: HTMLElement): () => void {
     const status = getLlmStatus();
     if (status === 'ready') return '✨ On-device AI: on';
     if (status === 'loading') return 'Loading on-device model…';
-    if (status === 'error') return '⚠️ On-device AI unavailable — retry';
-    return '✨ Explain picks with on-device AI';
+    if (status === 'error') return '⚠️ AI unavailable — retry';
+    return '✨ Explain with on-device AI';
   }
 
   async function toggleLocalAi(btn: HTMLElement, results: ScoredItem[]) {
@@ -321,41 +407,46 @@ export function renderResults(root: HTMLElement): () => void {
   }
 
   function buildCard(item: ScoredItem, index: number): HTMLElement {
-    const poster = posterUrl(item.posterPath, 'md');
+    const poster = buildPosterImage({
+      src: posterUrl(item.posterPath, 'md'),
+      alt: `${item.title} poster`,
+      fallbackText: item.title.slice(0, 1),
+    });
     const ratingBadge = item.externalRatings?.rottenTomatoes
       ? el('span', { class: 'badge badge-rt' }, [`🍅 ${item.externalRatings.rottenTomatoes}%`])
       : null;
 
-    const card = el('article', {
-      class: 'result-card',
-      style: `--stagger: ${Math.min(index, 20)}`,
-    }, [
-      el('div', {
-        class: 'result-poster',
-        onclick: () => openDetailModal(item),
-        style: poster ? `background-image: url(${poster})` : undefined,
-      }, poster ? [
-        el('span', { class: 'result-poster-overlay' }, ['ℹ️ Details']),
-      ] : [el('span', { class: 'poster-fallback' }, [item.title.slice(0, 1)])]),
-      el('div', { class: 'result-body' }, [
-        el('div', { class: 'result-match' }, [`${item.matchPct}% match`]),
-        el('h3', { class: 'result-title', onclick: () => openDetailModal(item) }, [`${item.title} (${item.year})`]),
-        ...(ratingBadge ? [ratingBadge] : []),
-        el(
-          'ul',
-          { class: 'result-reasons' },
-          item.reasons.map((r) => el('li', {}, [r]))
-        ),
-        buildStarRow(item.id, resultRatings.get(item.id), (v) => onRateResult(item, v)),
-      ]),
-    ]);
+    const card = el(
+      'article',
+      {
+        class: 'result-card stagger-in',
+        style: `--stagger: ${Math.min(index, 20)}`,
+      },
+      [
+        el('div', { class: 'result-poster', onclick: () => openDetailModal(item) }, [
+          poster,
+          el('span', { class: 'result-poster-overlay' }, ['ℹ️ Details']),
+        ]),
+        el('div', { class: 'result-body' }, [
+          el('div', { class: 'result-match' }, [`${item.matchPct}% match`]),
+          el('h3', { class: 'result-title', onclick: () => openDetailModal(item) }, [`${item.title} (${item.year})`]),
+          ...(ratingBadge ? [ratingBadge] : []),
+          el(
+            'ul',
+            { class: 'result-reasons' },
+            item.reasons.map((r) => el('li', {}, [r]))
+          ),
+          buildStarRow(item.id, resultRatings.get(item.id), (v) => onRateResult(item, v)),
+        ]),
+      ]
+    );
 
     return card;
   }
 
   // ── Movie info modal — "check the info before watching" ─────────────
   function openDetailModal(item: ScoredItem) {
-    const backdrop = backdropUrl(item.backdropPath) ?? posterUrl(item.posterPath, 'xl');
+    const backdropSrc = backdropUrl(item.backdropPath) ?? posterUrl(item.posterPath, 'xl');
 
     const ratingsLine: string[] = [`⭐ ${item.voteAverage.toFixed(1)}/10 TMDB (${item.voteCount.toLocaleString()} votes)`];
     if (item.externalRatings?.rottenTomatoes !== undefined) ratingsLine.push(`🍅 ${item.externalRatings.rottenTomatoes}%`);
@@ -365,12 +456,13 @@ export function renderResults(root: HTMLElement): () => void {
     const overlay = el('div', { class: 'modal-overlay', role: 'dialog', 'aria-modal': 'true' });
     const closeBtn = el('button', { class: 'modal-close', 'aria-label': 'Close' }, ['✕']);
 
+    const hero = el('div', { class: 'modal-hero' }, [
+      buildPosterImage({ src: backdropSrc, alt: `${item.title} backdrop`, fallbackText: item.title.slice(0, 1), eager: true }),
+    ]);
+
     const modal = el('div', { class: 'modal-card' }, [
       closeBtn,
-      el('div', {
-        class: 'modal-hero',
-        style: backdrop ? `background-image: url(${backdrop})` : undefined,
-      }),
+      hero,
       el('div', { class: 'modal-body' }, [
         el('div', { class: 'result-match modal-match' }, [`${item.matchPct}% match`]),
         el('h2', {}, [`${item.title} (${item.year})`]),
@@ -421,5 +513,6 @@ export function renderResults(root: HTMLElement): () => void {
 
   return () => {
     cancelled = true;
+    if (rateTimer !== null) window.clearTimeout(rateTimer);
   };
 }

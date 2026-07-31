@@ -13,11 +13,14 @@ export function renderQuiz(root: HTMLElement): () => void {
 
     const progressPct = Math.round(((step + 1) / QUIZ_QUESTIONS.length) * 100);
 
-    const options = question.options.map((opt) =>
+    const rawOptions = question.filterOptions ? question.filterOptions(answers, question.options) : question.options;
+    const selectedValue = (answers as Record<string, string | undefined>)[question.id];
+
+    const options = rawOptions.map((opt) =>
       el(
         'button',
         {
-          class: 'quiz-option',
+          class: `quiz-option${opt.value === selectedValue ? ' selected' : ''}`,
           onclick: () => selectOption(question.id, opt.value),
         },
         [el('span', { class: 'quiz-option-icon' }, [opt.icon]), el('span', {}, [opt.label])]

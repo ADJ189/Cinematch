@@ -1,14 +1,16 @@
-import { RATING_SEEDS } from '../data/rating-seeds';
-import { el, mount } from '../lib/dom';
+import { buildRatingPool } from '../lib/rating-pool';
+import { buildPosterImage, el, mount } from '../lib/dom';
 import { parseLetterboxdCsv } from '../lib/letterboxd';
 import { store } from '../lib/store';
 import { posterUrl, searchTitle } from '../lib/tmdb';
-import type { RatingValue } from '../lib/types';
+import type { RatingSeed, RatingValue } from '../lib/types';
 
 const MIN_RATINGS_TO_CONTINUE = 3;
 
 export function renderRating(root: HTMLElement): () => void {
+  let cancelled = false;
   const cards = new Map<number, HTMLElement>();
+  let seeds: RatingSeed[] = store.getState().ratingSeeds;
 
   const grid = el('div', { class: 'rating-grid' });
   const continueBtn = el(
@@ -25,10 +27,15 @@ export function renderRating(root: HTMLElement): () => void {
     onchange: onImportFile,
   }) as HTMLInputElement;
 
+  const mood = store.getState().quizAnswers.mood;
+  const subtitle = mood
+    ? `Mostly ${mood} picks, tuned to what you just told us — rate at least ${MIN_RATINGS_TO_CONTINUE}.`
+    : `Rate at least ${MIN_RATINGS_TO_CONTINUE} — this is what actually tunes the engine.`;
+
   const screen = el('div', { class: 'screen rating' }, [
     el('div', { class: 'rating-header' }, [
       el('h2', {}, ['Rate a few you know']),
-      el('p', {}, [`Rate at least ${MIN_RATINGS_TO_CONTINUE} — this is what actually tunes the engine.`]),
+      el('p', {}, [subtitle]),
       el('button', { class: 'btn btn-ghost', onclick: () => importInput.click() }, [
         'Import from Letterboxd',
       ]),
@@ -39,26 +46,62 @@ export function renderRating(root: HTMLElement): () => void {
   ]);
 
   mount(root, screen);
+  drawSkeletonGrid();
+  void loadPool();
 
-  RATING_SEEDS.forEach((seed, i) => {
-    const card = buildCard(seed.id, seed.title, seed.year, null);
-    card.style.setProperty('--i', String(i));
-    cards.set(seed.id, card);
-    grid.appendChild(card);
+  async function loadPool() {
+    const pool = await buildRatingPool(mood);
+    if (cancelled) return;
+    seeds = pool.seeds;
+    store.setRatingPool(pool.seeds, pool.signals);
+    buildCards();
+  }
 
-    // Resolve real posters lazily; the card works fine without one.
-    searchTitle(seed.title, seed.tmdbType)
-      .then((res) => {
-        if (res?.posterPath) setCardPoster(card, posterUrl(res.posterPath, 'md'));
-      })
-      .catch(() => {});
-  });
+  function drawSkeletonGrid() {
+    grid.replaceChildren(
+      ...Array.from({ length: 15 }, (_, i) =>
+        el('div', { class: 'rating-card stagger-in', style: `--stagger: ${i}` }, [
+          el('div', { class: 'rating-poster skeleton' }),
+          el('p', { class: 'rating-title skeleton-text' }, ['\u00a0']),
+        ])
+      )
+    );
+  }
 
-  syncFromStore();
+  function buildCards() {
+    grid.replaceChildren();
+    cards.clear();
 
-  function buildCard(id: number, title: string, year: number, posterPath: string | null): HTMLElement {
-    const posterWrap = el('div', { class: 'rating-poster skeleton' });
-    if (posterPath) setPoster(posterWrap, posterPath);
+    seeds.forEach((seed, i) => {
+      const card = buildCard(seed.id, seed.title, seed.year, seed.posterPath, i);
+      cards.set(seed.id, card);
+      grid.appendChild(card);
+
+      // The genre-weighted picks already carry a poster from the live
+      // TMDB query; the small static fallback list doesn't, so resolve
+      // those lazily. The card works fine either way in the meantime.
+      if (!seed.posterPath) {
+        searchTitle(seed.title, seed.tmdbType)
+          .then((res) => {
+            if (!cancelled && res?.posterPath) setCardPoster(card, posterUrl(res.posterPath, 'md'));
+          })
+          .catch(() => {});
+      }
+    });
+
+    syncFromStore();
+  }
+
+  function buildCard(
+    id: number,
+    title: string,
+    year: number,
+    posterPath: string | null,
+    index: number
+  ): HTMLElement {
+    const posterWrap = el('div', { class: 'rating-poster' }, [
+      buildPosterImage({ src: posterUrl(posterPath, 'md'), alt: `${title} poster`, fallbackText: title.slice(0, 1) }),
+    ]);
 
     const stars = [1, 2, 3, 4, 5].map((n) =>
       el(
@@ -72,7 +115,7 @@ export function renderRating(root: HTMLElement): () => void {
       )
     );
 
-    const card = el('div', { class: 'rating-card', 'data-id': id }, [
+    const card = el('div', { class: 'rating-card stagger-in', 'data-item': id, style: `--stagger: ${index}` }, [
       posterWrap,
       el('p', { class: 'rating-title' }, [`${title} (${year})`]),
       el('div', { class: 'star-row' }, stars),
@@ -81,15 +124,11 @@ export function renderRating(root: HTMLElement): () => void {
     return card;
   }
 
-  function setPoster(wrap: HTMLElement, url: string) {
-    wrap.classList.remove('skeleton');
-    wrap.style.backgroundImage = `url(${url})`;
-  }
-
   function setCardPoster(card: HTMLElement, url: string | null) {
     if (!url) return;
     const wrap = (card as HTMLElement & { _posterWrap?: HTMLElement })._posterWrap;
-    if (wrap) setPoster(wrap, url);
+    if (!wrap) return;
+    wrap.replaceChildren(buildPosterImage({ src: url, alt: '', fallbackText: '?' }));
   }
 
   function rate(id: number, value: RatingValue) {
@@ -120,7 +159,7 @@ export function renderRating(root: HTMLElement): () => void {
       // card, via a synthetic negative id namespace to avoid collisions.
       const imported: Record<number, RatingValue> = {};
       for (const row of rows) {
-        const seed = RATING_SEEDS.find((s) => s.title.toLowerCase() === row.title.toLowerCase());
+        const seed = seeds.find((s) => s.title.toLowerCase() === row.title.toLowerCase());
         if (seed) imported[seed.id] = row.rating as RatingValue;
       }
       store.importRatings(imported);
@@ -140,5 +179,7 @@ export function renderRating(root: HTMLElement): () => void {
     store.setScreen('results');
   }
 
-  return () => {};
+  return () => {
+    cancelled = true;
+  };
 }
