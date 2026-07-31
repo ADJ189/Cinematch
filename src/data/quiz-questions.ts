@@ -1,4 +1,23 @@
-import type { QuizQuestion } from '../lib/types';
+import type { QuizQuestion, QuizAnswers, QuizOption } from '../lib/types';
+
+// Options that would directly contradict or just restate the mood answer,
+// keyed by mood — used to narrow the vibe question so it never asks
+// something like "light & fun" right after "scared & screaming".
+const VIBE_EXCLUDE_BY_MOOD: Partial<Record<string, string[]>> = {
+  horror: ['feelgood', 'light'],
+  thriller: ['feelgood', 'light'],
+  comedy: ['dark'],
+  sitcom: ['dark'],
+};
+
+function filterVibeOptions(answers: QuizAnswers, options: QuizOption[]): QuizOption[] {
+  const exclude = answers.mood ? VIBE_EXCLUDE_BY_MOOD[answers.mood] : undefined;
+  if (!exclude) return options;
+  const filtered = options.filter((o) => !exclude.includes(o.value));
+  // Never leave fewer than two choices — if a mood somehow excludes almost
+  // everything, fall back to the full list rather than a near-empty one.
+  return filtered.length >= 2 ? filtered : options;
+}
 
 export const QUIZ_QUESTIONS: QuizQuestion[] = [
   {
@@ -46,6 +65,7 @@ export const QUIZ_QUESTIONS: QuizQuestion[] = [
       { label: 'Feel-good & warm', value: 'feelgood', icon: '🌈' },
       { label: 'Epic & grand', value: 'epic', icon: '🏔️' },
     ],
+    filterOptions: filterVibeOptions,
   },
   {
     id: 'language',
@@ -55,6 +75,17 @@ export const QUIZ_QUESTIONS: QuizQuestion[] = [
       { label: 'English only', value: 'english', icon: '🔤' },
       { label: 'Subtitles are fine', value: 'subtitles', icon: '💬' },
       { label: 'No preference', value: 'any_lang', icon: '🌀' },
+    ],
+  },
+  {
+    id: 'contentType',
+    question: 'One more thing — any particular style?',
+    subtitle: 'Akinator mode: pick whatever fits, or skip if it\u2019s all fair game',
+    options: [
+      { label: 'Anime', value: 'anime', icon: '\ud83c\udf8c' },
+      { label: 'Cartoon / animated', value: 'cartoon', icon: '\ud83c\udfa8' },
+      { label: 'Sitcom energy', value: 'sitcom', icon: '\ud83d\udecb\ufe0f' },
+      { label: 'Live-action, no preference', value: 'live_action', icon: '\ud83c\udfa5' },
     ],
   },
   {
