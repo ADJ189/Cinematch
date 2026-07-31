@@ -8,15 +8,103 @@
   display: flex;
   flex-direction: column;
   align-items: center;
-  gap: 10px;
+  gap: 12px;
   text-align: center;
 }
 
-.results-actions {
+.results-subline {
+  max-width: 620px;
+}
+
+.curating-indicator {
+  display: inline-block;
+  color: var(--amber);
+  font-weight: 500;
+  opacity: 0;
+  max-width: 0;
+  overflow: hidden;
+  white-space: nowrap;
+  transition: opacity var(--dur-fast) var(--ease-smooth);
+}
+
+.curating-indicator.visible {
+  opacity: 1;
+  max-width: 200px;
+}
+
+/* Toolbar: the mode toggle (a single segmented control) is visually
+   grouped and separated from the action buttons, instead of every button
+   competing in one undifferentiated row — this is the fix for the
+   cramped/mismatched button row. Wraps to a clean vertical stack on
+   narrow screens rather than letting buttons squeeze or overflow. */
+.results-toolbar {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  flex-wrap: wrap;
+  width: 100%;
+}
+
+.toolbar-group {
   display: flex;
   gap: 10px;
   flex-wrap: wrap;
   justify-content: center;
+}
+
+.toolbar-btn {
+  padding: 10px 18px;
+  font-size: 14px;
+  white-space: nowrap;
+}
+
+.mode-toggle {
+  display: inline-flex;
+  padding: 4px;
+  gap: 2px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+}
+
+.mode-btn {
+  padding: 8px 18px;
+  font-size: 13px;
+  font-weight: 600;
+  border-radius: var(--radius-pill);
+  color: var(--text-secondary);
+  transition: background var(--dur-fast) var(--ease-spring), color var(--dur-fast);
+}
+
+.mode-btn.active {
+  background: var(--gradient-match);
+  color: #0a0714;
+}
+
+.mode-btn:not(.active):hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+@media (max-width: 640px) {
+  .results-toolbar {
+    flex-direction: column;
+    align-items: stretch;
+  }
+
+  .toolbar-group {
+    flex-direction: column;
+  }
+
+  .toolbar-btn,
+  .mode-toggle {
+    width: 100%;
+  }
+
+  .mode-btn {
+    flex: 1;
+  }
 }
 
 .results-grid {
@@ -35,20 +123,6 @@
   display: flex;
   flex-direction: column;
   transition: transform var(--dur-fast) var(--ease-spring), border-color var(--dur-fast), box-shadow var(--dur-fast);
-  opacity: 0;
-  animation: card-in var(--dur-med) var(--ease-smooth) forwards;
-  animation-delay: calc(var(--stagger, 0) * 40ms);
-}
-
-@keyframes card-in {
-  from {
-    opacity: 0;
-    transform: translateY(12px) scale(0.98);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0) scale(1);
-  }
 }
 
 .result-card:hover {
@@ -60,12 +134,7 @@
 .result-poster {
   position: relative;
   aspect-ratio: 2 / 3;
-  background-size: cover;
-  background-position: center;
   background-color: var(--surface-hover);
-  display: flex;
-  align-items: center;
-  justify-content: center;
   cursor: pointer;
   overflow: hidden;
 }
@@ -88,6 +157,7 @@
   opacity: 0;
   transform: translateY(6px);
   transition: opacity var(--dur-fast) var(--ease-smooth), transform var(--dur-fast) var(--ease-smooth);
+  pointer-events: none;
 }
 
 .result-poster:hover .result-poster-overlay {

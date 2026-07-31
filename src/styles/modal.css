@@ -68,11 +68,20 @@
 }
 
 .modal-hero {
+  position: relative;
   height: 200px;
-  background-size: cover;
-  background-position: center 20%;
   background-color: var(--surface-hover);
   border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+  overflow: hidden;
+}
+
+.modal-hero .poster-frame {
+  position: absolute;
+  inset: 0;
+}
+
+.modal-hero .poster-img {
+  object-position: center 20%;
 }
 
 .modal-body {

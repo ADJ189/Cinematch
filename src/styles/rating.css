@@ -22,30 +22,14 @@
   display: flex;
   flex-direction: column;
   gap: 8px;
-  animation: card-in var(--dur-med) var(--ease-smooth) backwards;
-}
-
-.rating-card:nth-child(n) {
-  animation-delay: calc(var(--i, 0) * 30ms);
-}
-
-@keyframes card-in {
-  from {
-    opacity: 0;
-    transform: translateY(8px);
-  }
-  to {
-    opacity: 1;
-    transform: translateY(0);
-  }
 }
 
 .rating-poster {
+  position: relative;
   aspect-ratio: 2 / 3;
   border-radius: var(--radius-sm);
-  background-size: cover;
-  background-position: center;
   background-color: var(--surface);
+  overflow: hidden;
 }
 
 .rating-title {

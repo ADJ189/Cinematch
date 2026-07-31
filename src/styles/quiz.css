@@ -91,6 +91,12 @@
   box-shadow: 0 8px 20px rgba(124, 92, 240, 0.14);
 }
 
+.quiz-option.selected {
+  border-color: var(--violet);
+  background: var(--surface-hover);
+  box-shadow: 0 0 0 1px var(--violet), 0 8px 20px rgba(124, 92, 240, 0.14);
+}
+
 .quiz-option:active {
   transform: scale(0.98);
 }
