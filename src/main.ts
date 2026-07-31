@@ -46,3 +46,16 @@ store.subscribe((state) => {
   currentScreen = state.screen;
   currentCleanup = renderers[state.screen](app);
 });
+
+dismissBootLoader();
+
+function dismissBootLoader() {
+  const loader = document.getElementById('boot-loader');
+  if (!loader) return;
+  // rAF so the first screen's own paint has actually happened before we
+  // start fading the loader out — avoids a one-frame flash of bare page.
+  requestAnimationFrame(() => {
+    loader.classList.add('hidden');
+    setTimeout(() => loader.remove(), 320);
+  });
+}
