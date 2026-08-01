@@ -2,6 +2,21 @@
 
 All notable changes to this project are documented here.
 
+## [1.3.0] — Worker migration, three real bug fixes, resilience pass
+
+### Fixed
+- **On-device AI failed with "unavailable/error" on most devices.** Root cause: `ai-worker.ts` manually pointed `wasmPaths` at `@huggingface/transformers`'s own CDN dist folder to "pin" the WASM source — but that folder only ships a JS glue file, not the actual `.wasm` binaries (those live in the separate `onnxruntime-web` package, at a specific version transformers.js resolves internally). Every WASM-tier load 404'd on the binary fetch, which is most devices — WebGPU is the minority path. Fixed by not overriding `wasmPaths` at all; the library's own default is version-correct by construction. Also added a real `navigator.gpu.requestAdapter()` check instead of trusting `'gpu' in navigator` (true even with no usable adapter behind it), and gated multi-threaded WASM behind `self.crossOriginIsolated` (it needs `SharedArrayBuffer`, which throws without COOP/COEP headers — see "Changed" below for where those now come from).
+- **Selecting an era (e.g. "Classic — pre-2000") could still surface newer titles.** `engine.ts` only applied era as a soft +12/-4 score nudge; TMDB's server-side date filter isn't airtight (re-release dates, missing region, occasional bad data), and a strong genre/vibe match could outscore the penalty regardless. Era is now hard-filtered in `engine.getResults()` before scoring — the era you pick is the era you get.
+- **Recommendations "ran out" after rating just a few results.** Every rating triggered a debounced `rescore()` that excluded everything already in `shownIds` — which, for a narrower filter combination, could already cover the entire fetched pool after only 2-3 ratings. The next rescore silently returned an empty array and got rendered as-is: no fallback, no message, just a blank grid. Replaced with `ensureBatch()`, which escalates through fallbacks — retry ignoring the shown-set, pull a later TMDB page window, drop Precise mode's match floor, and only as a last resort show the pool's best titles again — surfacing an honest note (`.results-note`) whenever it had to compromise, and a real inline empty-state card (with "Different picks" / "Adjust answers" actions) in the true last-resort case instead of ever leaving the grid blank.
+
+### Changed — architecture
+- **Migrated from Cloudflare Pages to a genuine Cloudflare Worker.** `functions/api/recommend.ts` (a Pages Functions convention) is now `worker/index.ts`, a real `fetch` handler: it serves `dist/` via the `ASSETS` binding for everything except `/api/recommend`, and stamps `Cross-Origin-Opener-Policy: same-origin` + `Cross-Origin-Embedder-Policy: require-corp` onto every response. Those two headers are what actually make `self.crossOriginIsolated` true, which is what unlocks the multi-threaded WASM fast path referenced above. `wrangler.jsonc` now declares `main` (previously assets-only) and keeps the same Worker name so redeploying doesn't orphan the existing project's Cloudflare variables. `wrangler` was also missing from `devDependencies` despite `wrangler.jsonc` existing — added, along with `worker:dev` and `deploy` scripts.
+- `tsconfig.json` now typechecks `worker/` — the old `functions/` directory was never actually covered by `tsc --noEmit`, so a break there could ship silently.
+- `package.json` version corrected to track this changelog (it had drifted to `3.2.0` against a `1.2.0` changelog top).
+
+### Added
+- Small, targeted motion in the two places users actually watch: the match% badge on each result card now pops in on render, and a star pops on fill — both via the existing `--dur-fast`/`--ease-spring` tokens, so `prefers-reduced-motion` still disables them for free.
+
 ## [1.2.0] — Adaptive quiz, genre-weighted calibration, resource-aware AI, perf pass
 
 ### Fixed

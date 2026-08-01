@@ -27,8 +27,8 @@ the fix's changelog entry unless you'd prefer to stay anonymous.
   responses (TMDB/OMDb) rendered into the DOM, and any handling of
   user-supplied files (the Letterboxd CSV importer).
 - The optional on-device AI model is loaded from a CDN at runtime and never
-  sends data anywhere; the optional `functions/api/recommend.ts` Pages
-  Function only ever forwards a pre-filtered candidate list, never raw user
-  input, to Cloudflare Workers AI.
+  sends data anywhere; the optional `worker/index.ts` `/api/recommend` route
+  only ever forwards a pre-filtered candidate list, never raw user input, to
+  Cloudflare Workers AI.
 - `npm audit` is expected to report 0 vulnerabilities; Dependabot is
   configured for weekly npm checks.

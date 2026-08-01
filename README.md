@@ -11,9 +11,9 @@ Six quick questions, a few titles you already know, and a live pull from thousan
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?style=flat-square)](https://www.typescriptlang.org)
 [![License: Apache 2.0](https://img.shields.io/badge/license-Apache%202.0-blue?style=flat-square)](./LICENSE)
 [![No framework](https://img.shields.io/badge/framework-none-22d3ee?style=flat-square)](#stack)
-[![Bundle size](https://img.shields.io/badge/first%20paint%20JS-~9%20kB%20gzip-4ade80?style=flat-square)](#stack)
+[![Deploy](https://img.shields.io/badge/deploy-Cloudflare%20Workers-f38020?style=flat-square)](#deploying-cloudflare-workers)
 
-[Features](#features) · [Setup](#setup) · [Architecture](#architecture) · [Deploying](#deploying-cloudflare-pages)
+[Features](#features) · [Setup](#setup) · [Architecture](#architecture) · [Deploying](#deploying-cloudflare-workers)
 
 </div>
 
@@ -24,10 +24,11 @@ Six quick questions, a few titles you already know, and a live pull from thousan
 - **Live catalog, not a fixed list.** Every query hits TMDB's `/discover` endpoints directly — hundreds of candidates per query, filtered by genre, era, format, and language, so results actually change with your answers.
 - **Adaptive quiz.** Seven quick questions, including a dedicated anime / Western cartoon / sitcom style pick. Later questions narrow their own options based on what you've already answered — picking "horror" won't then offer "light & fun" as a tone.
 - **Genre-weighted taste calibration.** Picking a mood pulls ~75% of the titles you rate live from TMDB in that genre, with the rest kept as broadly-known anchors — rating "horror" actually calibrates against horror, not a fixed generic list.
-- **Keep refining after you get results.** Rate any recommendation right on its card and the whole grid re-curates using every signal collected so far (rating updates instantly; re-curation debounces ~1.6s so a quick streak of taps doesn't re-render on every click). Want a different batch entirely? One click pulls a fresh, unseen set from TMDB.
-- **Precise / Grouped toggle.** Grouped is a wide, forgiving pool (default). Precise holds results to a 68%+ match floor and returns fewer, tighter picks.
+- **An era pick that's actually enforced.** Era (classic/mid/recent) is a hard filter on the candidate pool, not just a scoring nudge — picking "pre-2000" won't let a strong genre match sneak a 2020s title past it.
+- **Keep refining after you get results.** Rate any recommendation right on its card and the whole grid re-curates using every signal collected so far (rating updates instantly; re-curation debounces ~1.6s so a quick streak of taps doesn't re-render on every click). Want a different batch entirely? One click pulls a fresh, unseen set from TMDB. If a narrow filter combination genuinely runs low, the app escalates through fallbacks (a later TMDB page, a loosened Precise floor, then a labeled repeat) instead of ever leaving you with a blank screen.
+- **Precise / Grouped results toggle.** Grouped is a wide, forgiving pool (default). Precise holds results to a 68%+ match floor and returns fewer, tighter picks.
 - **Check before you commit.** Click any poster for a detail view — synopsis, genre/vibe tags, TMDB/Rotten Tomatoes/Metacritic/IMDb scores, and a direct link to the title's TMDB page for trailers and reviews.
-- **Optional on-device AI.** Turns each result's rule-based reasons into one natural sentence, running entirely in a Web Worker. Picks a model/quantization tier from your device's memory, core count, and WebGPU support, and falls through several CDN and model-repo options until one loads — no server call, no API key, nothing leaves your device. Opt-in, never a dependency.
+- **Optional on-device AI.** Turns each result's rule-based reasons into one natural sentence, running entirely in a Web Worker. Picks a model/quantization tier from your device's memory, core count, and WebGPU support (with a real adapter check, not just API-surface detection), and falls through several CDN and model-repo options until one loads — no server call, no API key, nothing leaves your device. Opt-in, never a dependency.
 - **Dark mode and light mode**, persisted and defaulting to your system preference.
 - **No account, no tracking.** Nothing is sent anywhere except the TMDB/OMDb API calls needed to fetch and score titles.
 
@@ -39,7 +40,7 @@ Six quick questions, a few titles you already know, and a live pull from thousan
 
 ## Stack
 
-Vanilla TypeScript + Vite. No framework. The UI is four screens and a ~70-line pub-sub store (`src/lib/store.ts`) — not enough surface area to justify a compiler-driven framework, and it keeps the bundle small (**~9 kB gzipped JS** on first paint; the on-device AI worker and the fluid canvas background are separate, lazily-loaded chunks that most page loads never touch).
+Vanilla TypeScript + Vite. No framework. The UI is four screens and a ~70-line pub-sub store (`src/lib/store.ts`) — not enough surface area to justify a compiler-driven framework, and it keeps the bundle small (first-paint JS gzips to roughly 12 kB; the on-device AI worker and the fluid canvas background are separate, lazily-loaded chunks that most page loads never touch).
 
 | | |
 |---|---|
@@ -47,9 +48,11 @@ Vanilla TypeScript + Vite. No framework. The UI is four screens and a ~70-line p
 | **Build** | Vite 8 |
 | **Data** | [TMDB](https://www.themoviedb.org/documentation/api) (required), [OMDb](https://www.omdbapi.com/) (optional) |
 | **On-device AI** | [`@huggingface/transformers`](https://huggingface.co/docs/transformers.js) v4, loaded from CDN, Web Worker, WebGPU with a WASM fallback |
-| **Deploy target** | Cloudflare Pages (static, with an optional Pages Function) |
+| **Deploy target** | Cloudflare Workers (static assets + a small API Worker) |
 
 ## Setup
+
+This deployment already has `VITE_TMDB_TOKEN` set as a Cloudflare **project variable**, so production builds don't need anything from you — this section is for running the app locally.
 
 ```bash
 npm install
@@ -60,14 +63,17 @@ Fill in `.env`:
 
 | Variable | Required | Where to get it |
 |---|---|---|
-| `VITE_TMDB_TOKEN` | Yes — the app runs in a "TMDB not configured" state without it | [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api) → API Read Access Token (v4) |
+| `VITE_TMDB_TOKEN` | Yes for local dev — the app runs in a "TMDB not configured" demo state without it | [themoviedb.org/settings/api](https://www.themoviedb.org/settings/api) → API Read Access Token (v4) |
 | `VITE_OMDB_KEY` | No — adds Rotten Tomatoes / Metacritic / IMDb as a secondary signal | [omdbapi.com/apikey.aspx](https://www.omdbapi.com/apikey.aspx) (free tier) |
 
 ```bash
-npm run dev        # local dev server
-npm run typecheck  # strict TypeScript, zero errors
+npm run dev        # local Vite dev server
+npm run typecheck  # strict TypeScript, zero errors (covers src/ and worker/)
 npm run build      # production build to dist/
+npm run worker:dev # run the actual Cloudflare Worker locally via wrangler, serving dist/
 ```
+
+`VITE_`-prefixed vars are build-time only — they get baked into the client bundle by Vite, not read at request time by the Worker. That's why they're set as Cloudflare **project variables** (used at build time), not Worker secrets.
 
 ## Architecture
 
@@ -76,7 +82,8 @@ src/
   lib/
     tmdb.ts        live catalog — /discover/movie + /discover/tv, genre-mapped, era-classified,
                     paginated on demand so "different picks" pulls a genuinely new batch
-    engine.ts       scoring model — quiz + calibration ratings + in-session result ratings → matchPct + reasons
+    engine.ts       scoring model — quiz + calibration ratings + in-session result ratings → matchPct
+                    + reasons; era is a hard filter here, not just a score nudge
     omdb.ts         optional secondary rating signal (Rotten Tomatoes / Metacritic / IMDb)
     letterboxd.ts   parses a Letterboxd ratings.csv export for taste calibration
     rating-pool.ts  builds the calibration list — ~75% genre-weighted to the quiz's mood when TMDB is available
@@ -89,24 +96,26 @@ src/
     dom.ts          tiny element-builder helper
   screens/          landing, quiz, rating, results — one module each
   data/             quiz questions, taste-calibration seed titles
-functions/api/
-  recommend.ts      OPTIONAL Cloudflare Workers AI re-ranking pass
+worker/
+  index.ts          the Cloudflare Worker entry point — serves dist/ via the ASSETS binding, handles
+                     POST /api/recommend (OPTIONAL Workers AI re-ranking pass), and sets the
+                     COOP/COEP headers the on-device AI's multi-threaded WASM path needs
 ```
 
-**The client-side engine is fully self-sufficient.** `functions/api/recommend.ts` is an enhancement layer, not a dependency — the app works completely without Workers AI enabled. If you do want it, you must turn the AI binding on in the Cloudflare Pages dashboard (Settings → Functions), not just declare it in `wrangler.jsonc`.
+**The client-side engine is fully self-sufficient.** `worker/index.ts`'s `/api/recommend` route is an enhancement layer, not a dependency — the app works completely without Workers AI enabled, and nothing in `src/` currently calls that route. If you do want it, you must turn the AI binding on in the Cloudflare dashboard (Settings → Bindings), not just declare it in `wrangler.jsonc`.
 
-### How recommendations stay fresh
+### How recommendations stay fresh (and never dead-end)
 
-1. The quiz and calibration ratings seed an initial TMDB query (up to 3 pages × 2 media types).
+1. The quiz and calibration ratings seed an initial TMDB query (up to 3 pages × 2 media types), hard-filtered by era if one was picked.
 2. `engine.ts` scores every candidate and returns the top batch, excluding anything already shown.
-3. Rating a result card feeds that title's own genre/vibe tags straight back into the engine — no lookup table needed, since every live TMDB result already carries that data — and the grid re-scores immediately.
-4. "Show me different picks" first tries the unseen remainder of the pool already fetched; if that's running low, it pages further into TMDB before falling back to allowing repeats, so the combination of filters you picked never dead-ends into a blank screen.
+3. Rating a result card feeds that title's own genre/vibe tags straight back into the engine — no lookup table needed, since every live TMDB result already carries that data — and the grid re-scores after a short debounce.
+4. If that re-score comes back empty — which used to happen after just a few ratings on a narrow filter combination — `ensureBatch()` in `results.ts` escalates: retry ignoring the "already shown" set, pull a later TMDB page window, drop Precise mode's match floor, and only as a last resort show the pool's best titles again. Whenever it had to compromise to avoid a dead end, it says so in a small note instead of silently repeating titles.
 
 ### On-device AI, and why it used to fail
 
-The previous version loaded the model on the main thread with no explicit quantization or device selection. In practice that meant: the largest available build (often full `fp32`) got pulled regardless of connection or device, so loads regularly stalled out or exhausted memory on ordinary laptops and most phones; a WebGPU-only path failed outright with no fallback on browsers or systems without it; and a slow WASM decode froze the results screen while it ran.
+The actual cause: `ai-worker.ts` used to manually pin `wasmPaths` (where the WASM binary that runs the model gets fetched from) at `@huggingface/transformers`'s own CDN folder — but that folder only contains a JS glue file, not the `.wasm` binary itself. The real binary ships in the separate `onnxruntime-web` package, at whatever version transformers.js resolves internally. Every WASM-tier load therefore 404'd on the binary fetch, which is most devices — WebGPU is the minority path. Fixed by not overriding `wasmPaths` at all; the library's own default is correct by construction.
 
-The current version (`ai-worker.ts` + `llm.ts`) fixes all three, plus adds resilience a single-CDN/single-model setup can't have: it requests the smallest quantization a resource tier calls for (chosen from device memory, core count, WebGPU support, and mobile detection), tries a short list of CDNs for the library and a short list of model repos per tier until one combination actually loads, runs entirely in a Web Worker so the UI thread never blocks, and enforces load/generate timeouts so a stalled connection degrades to the rule-based reasons instead of hanging the button forever.
+Two related hardening fixes went in alongside it: a real `navigator.gpu.requestAdapter()` check before attempting the WebGPU tier (the API surface can exist with no usable adapter behind it), and multi-threaded WASM is now only requested when the page is actually cross-origin isolated (`self.crossOriginIsolated`) — which needs `SharedArrayBuffer`, which the browser only grants with `Cross-Origin-Opener-Policy`/`Cross-Origin-Embedder-Policy` response headers. `worker/index.ts` now sets both on every response, so the fast multi-threaded path is genuinely available; without them the AI worker still runs, just single-threaded.
 
 ## Connectors
 
@@ -115,20 +124,22 @@ The current version (`ai-worker.ts` + `llm.ts`) fixes all three, plus adds resil
 - **Letterboxd** — optional, import a `ratings.csv` export to skip manual re-rating
 - **On-device AI** — optional, opt-in per session from the results screen. Loads a small quantized model from CDN at runtime (never part of `npm install` — see the comment at the top of `src/lib/ai-worker.ts` for why)
 
-## Deploying (Cloudflare Pages)
+## Deploying (Cloudflare Workers)
 
 ```bash
-npm run build
+npm run deploy   # builds, then runs `wrangler deploy`
 ```
 
-Point Pages at this repo with build command `npm run build` and output directory `dist`. Set `VITE_TMDB_TOKEN` (and optionally `VITE_OMDB_KEY`) as environment variables in the Pages project settings — `.env` is gitignored and never committed.
+This is a genuine Cloudflare Worker (`wrangler.jsonc` declares `main: worker/index.ts`), not a Pages project — it serves the built `dist/` folder via Workers Static Assets and handles `/api/recommend` itself. Set `VITE_TMDB_TOKEN` (and optionally `VITE_OMDB_KEY`) as **project variables** in the Cloudflare dashboard so they're present when `npm run build` runs; `.env` is gitignored and never committed.
+
+If you're redeploying over an existing deployment, don't rename the `name` field in `wrangler.jsonc` — `wrangler deploy` matches on that name, and renaming it creates a brand-new, unconfigured Worker instead of updating the one that already has your variables set.
 
 ## Contributing
 
 Issues and PRs are welcome. Before opening a PR:
 
 ```bash
-npm run typecheck   # must be clean — strict mode, no exceptions
+npm run typecheck   # must be clean — strict mode, no exceptions, covers src/ and worker/
 npm run build       # must succeed
 ```
 

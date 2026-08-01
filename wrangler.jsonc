@@ -1,16 +1,26 @@
 {
+  // Keep this name as-is if you're redeploying over the existing
+  // deployment (the one that already has VITE_TMDB_TOKEN etc. set as
+  // Cloudflare project variables) — `wrangler deploy` matches on name, so
+  // changing it creates a brand-new, unconfigured Worker instead of
+  // updating the one you already have.
   "name": "recommendation-engine",
+  "main": "worker/index.ts",
   "compatibility_date": "2026-01-01",
   "assets": {
-    "directory": "./dist"
+    "directory": "./dist",
+    "binding": "ASSETS"
   },
-  // Optional: enables env.AI in functions/api/recommend.ts for server-side
-  // re-ranking. The app works fully without this — client-side TMDB +
-  // engine.ts is the primary path. If you enable this, you must ALSO turn
-  // on the AI binding in the Cloudflare dashboard for this Pages project
-  // (Settings -> Functions -> AI binding) — declaring it here alone is not
-  // enough, which was the root cause of the old app's silent fallback.
+  // Optional: enables env.AI in worker/index.ts for a server-side
+  // re-ranking pass on top of the client-side TMDB pool. The app works
+  // fully without this. If you enable it, you must ALSO turn on the AI
+  // binding in the Cloudflare dashboard for this Worker (Settings ->
+  // Bindings -> AI) — declaring it here alone is not enough, which was
+  // the root cause of the old app's silent fallback.
   "ai": {
     "binding": "AI"
+  },
+  "observability": {
+    "enabled": true
   }
 }
