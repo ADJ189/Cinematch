@@ -32,17 +32,37 @@
 //      (SharedArrayBuffer-backed) is meaningfully faster on multi-core
 //      devices when WebGPU isn't available — now explicitly sized to
 //      leave one core free for the UI instead of defaulting to 1 or maxing
-//      every core.
+//      every core, and only actually requested when the page is
+//      cross-origin isolated (see point 6).
+//   6. `wasmPaths` was manually pointed at `@huggingface/transformers`'s
+//      own CDN dist folder to "pin" the WASM source — but that folder
+//      never contained the .wasm binaries (they live in the separate
+//      onnxruntime-web package). Every WASM-tier load therefore 404'd on
+//      the binary fetch and surfaced as "AI unavailable/error" — on
+//      basically every device without WebGPU. Fixed by not overriding
+//      wasmPaths at all; the library's own default is version-correct by
+//      construction. Also added a real WebGPU adapter check instead of
+//      trusting `'gpu' in navigator`, which is true even when there's no
+//      usable adapter behind it.
 
 const JS_CDN_SOURCES = [
   'https://esm.sh/@huggingface/transformers@4.2.0',
   'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0/+esm',
   'https://unpkg.com/@huggingface/transformers@4.2.0?module',
 ];
-const WASM_CDN_DIRS = [
-  'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0/dist/',
-  'https://unpkg.com/@huggingface/transformers@4.2.0/dist/',
-];
+// NOTE: there used to be a WASM_CDN_DIRS list here that pointed
+// env.backends.onnx.wasm.wasmPaths at `@huggingface/transformers/dist/`.
+// That directory only contains the JS glue file (ort-wasm-*.jsep.mjs), not
+// the actual .wasm binaries — those ship in the separate `onnxruntime-web`
+// package, at whatever exact (often dev-pinned) version transformers.js
+// depends on internally. Pointing wasmPaths at the wrong package meant
+// every WASM-tier load 404'd on the binary fetch and fell through to the
+// 'error' status — this was the actual cause of "AI unavailable/error",
+// and it hit every device without WebGPU (i.e. most phones and a lot of
+// laptops), not just an unlucky few. Fix: don't override wasmPaths at all.
+// The library computes its own default from the exact onnxruntime-web
+// version it ships with (`ONNX_ENV.versions.web`), which is always correct
+// by construction.
 
 const ctx = self as unknown as {
   postMessage: (message: unknown) => void;
@@ -124,6 +144,20 @@ function detectResourceTier(): ResourceTier[] {
   return [mid, low];
 }
 
+/** `'gpu' in navigator` only means the API surface exists — plenty of
+ * devices expose it with no usable adapter (GPU blocklisted, software
+ * rendering, a locked-down enterprise profile, etc.), and in that case
+ * `pipeline()` fails slower and noisier than just checking up front. */
+async function hasWebGpuAdapter(): Promise<boolean> {
+  const nav = ctx.navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown> } };
+  if (!nav.gpu) return false;
+  try {
+    return (await nav.gpu.requestAdapter()) != null;
+  } catch {
+    return false;
+  }
+}
+
 async function importFromFirstWorkingCdn(): Promise<{
   // eslint-disable-next-line @typescript-eslint/no-explicit-any
   pipeline: any;
@@ -155,18 +189,23 @@ async function load(): Promise<void> {
     env.allowLocalModels = false;
     env.useBrowserCache = true;
     if (env.backends?.onnx?.wasm) {
-      // Hardware acceleration for the WASM path: multi-threaded execution
-      // sized to leave one core free for the UI thread, instead of the
-      // library's default of a single thread.
+      // Multi-threaded WASM needs a SharedArrayBuffer, which the browser
+      // only grants on a cross-origin-isolated page (COOP/COEP response
+      // headers — see worker/index.ts). Requesting >1 thread without that
+      // throws instead of silently degrading on most onnxruntime-web
+      // builds, which used to take the whole feature down on any
+      // deployment that didn't happen to set those headers. Falls back to
+      // a correct, if slower, single-thread run everywhere else.
+      const isolated = (self as unknown as { crossOriginIsolated?: boolean }).crossOriginIsolated === true;
       const cores = ctx.navigator.hardwareConcurrency || 4;
-      env.backends.onnx.wasm.numThreads = Math.max(1, cores - 1);
-      env.backends.onnx.wasm.wasmPaths = WASM_CDN_DIRS[0];
+      env.backends.onnx.wasm.numThreads = isolated ? Math.max(1, cores - 1) : 1;
     }
 
     const tiers = detectResourceTier();
     let lastErr: unknown;
 
     for (const tier of tiers) {
+      if (tier.device === 'webgpu' && !(await hasWebGpuAdapter())) continue;
       for (const modelId of tier.models) {
         try {
           generator = (await pipeline('text-generation', modelId, {
@@ -184,11 +223,6 @@ async function load(): Promise<void> {
         } catch (err) {
           lastErr = err;
         }
-      }
-      // WASM wasmPaths only needs the primary CDN; if wasm itself is the
-      // failure point, try the mirror before moving to the next tier.
-      if (tier.device === 'wasm' && env.backends?.onnx?.wasm && WASM_CDN_DIRS[1]) {
-        env.backends.onnx.wasm.wasmPaths = WASM_CDN_DIRS[1];
       }
     }
     throw lastErr instanceof Error ? lastErr : new Error('No supported backend/model combination loaded.');

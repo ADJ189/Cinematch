@@ -90,8 +90,7 @@ export class RecommendationEngine {
     for (const g of item.genres) s += (this.genre[g] ?? 0) * 30;
     for (const v of item.vibe) s += (this.vibe[v] ?? 0) * 20;
 
-    const { era, language } = this.answers;
-    if (era && era !== 'any') s += item.era === era ? 12 : -4;
+    const { language } = this.answers;
     if (language === 'english') s += item.language === 'en' ? 8 : -14;
     else if (language === 'subtitles') s += item.language !== 'en' ? 4 : 0;
 
@@ -156,11 +155,22 @@ export class RecommendationEngine {
   }
 
   getResults(candidates: CatalogItem[], signalsBySeedId: Record<number, string[]>): ScoredItem[] {
-    // De-dupe by id (TMDB can return the same title across paginated pages).
+    const { era } = this.answers;
+
+    // De-dupe by id (TMDB can return the same title across paginated pages),
+    // and hard-enforce the era pick. This used to be a soft scoring nudge
+    // only — the candidate pool from tmdb.ts is already era-filtered
+    // server-side, but that filter isn't airtight (a title can carry a
+    // re-release/rebroadcast date, or TMDB's date field can simply be off),
+    // so a stray out-of-era item could slip into the pool and, if its
+    // genre/vibe match was strong, still outscore in-era titles. Filtering
+    // here guarantees the era you pick is the era you get, regardless of
+    // how the item entered the pool.
     const seen = new Set<number>();
     const pool = candidates.filter((c) => {
       if (seen.has(c.id)) return false;
       seen.add(c.id);
+      if (era && era !== 'any' && c.era !== era) return false;
       return true;
     });
 
