@@ -2,7 +2,7 @@
 
 All notable changes to this project are documented here.
 
-## [3.2.0] — Adaptive quiz, genre-weighted calibration, resource-aware AI, perf pass
+## [1.2.0] — Adaptive quiz, genre-weighted calibration, resource-aware AI, perf pass
 
 ### Fixed
 - **On-device AI still failed on some devices/networks.** A single hardcoded CDN and a single model repo meant any one of: that CDN being blocked by a network/proxy, a transient CDN outage, or that specific Hugging Face repo being briefly rate-limited, took the whole feature down. `ai-worker.ts` now tries a short list of CDNs for the library itself and a short list of model repos per resource tier, in order, until one combination actually finishes loading. WASM execution is now explicitly multi-threaded (sized to leave one core free for the UI) instead of single-threaded.
@@ -24,7 +24,7 @@ All notable changes to this project are documented here.
 - Results toolbar restructured: the mode toggle is now a visually distinct segmented control instead of competing with action buttons in one row; buttons stack full-width on screens under 640px instead of squeezing.
 - `engine.processRatings` signal source and `rating.ts`'s seed list are now read from the store (`ratingSeeds`/`ratingSignals`), populated by whichever pool (static or genre-weighted) actually got shown and rated.
 
-## [3.1.0] — Reliability, refinement loop, and a design pass
+## [1.1.0] — Reliability, refinement loop, and a design pass
 
 ### Fixed
 - **On-device AI failed intermittently.** It loaded on the main thread with no explicit quantization or device selection, so it silently pulled the largest available build (often full `fp32`) regardless of connection speed or device memory — the most likely reason loads stalled out or ran out of memory on ordinary laptops and most phones. A WebGPU-only path also had no fallback, so it failed outright on browsers/systems without WebGPU. Rewritten as `src/lib/ai-worker.ts` + `src/lib/llm.ts`: runs off the main thread in a Web Worker, requests the smallest quantization each backend supports (`q4` WebGPU → `q8` WASM → `q4` WASM), points the WASM loader at a reliable CDN path, uses proper chat-formatted prompts instead of string-splitting a raw completion, and enforces load/generate timeouts so a stalled connection degrades to the rule-based reasons instead of hanging forever.
@@ -43,7 +43,7 @@ All notable changes to this project are documented here.
 - `engine.processRatings` now accumulates across repeated calls instead of overwriting, since the results screen re-runs it on every re-score.
 - README and SECURITY.md rewritten.
 
-## [3.0.0] — Full rebuild
+## [0.9.0] — Full rebuild
 
 ### Fixed
 - **Recommendations no longer repeat regardless of quiz answers.** Root cause was two-fold: the AI recommendation call silently failed (Workers AI binding not active) and fell back to a client-side scorer running against a **hardcoded 30-title catalog**, whose flat quality bonus (`(rating - 7) * 5`, up to ±12.5) outweighed the actual quiz signal (max ±30 across 6 questions). Fixed by rewriting the scoring model and replacing the fixed catalog with a live TMDB pool.
