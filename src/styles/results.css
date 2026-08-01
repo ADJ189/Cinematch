@@ -177,6 +177,18 @@
   font-size: 12px;
   font-weight: 500;
   color: var(--cyan);
+  animation: match-pop var(--dur-med) var(--ease-spring);
+}
+
+@keyframes match-pop {
+  from {
+    opacity: 0;
+    transform: translateY(-3px) scale(0.9);
+  }
+  to {
+    opacity: 1;
+    transform: none;
+  }
 }
 
 .result-title {
@@ -232,6 +244,38 @@
   align-items: center;
   gap: 14px;
   margin-top: 80px;
+}
+
+/* Used inline within the results grid area (pool genuinely exhausted after
+   rating) instead of replacing the whole screen — the header/toolbar stay
+   put so "Different picks" and "Adjust answers" are right there. */
+.state-message-inline {
+  margin-top: 40px;
+  margin-inline: auto;
+  padding: 32px 24px;
+  background: var(--surface);
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--radius-lg);
+}
+
+.state-message-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+/* The honest-compromise note from ensureBatch() — e.g. "loosened the
+   Precise floor" or "showing repeats" — styled as a quiet callout rather
+   than an error, since it's never blocking anything. */
+.results-note {
+  max-width: 620px;
+  padding: 10px 16px;
+  font-size: 13px;
+  color: var(--text-secondary);
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
 }
 
 .skeleton-card {

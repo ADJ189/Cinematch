@@ -56,6 +56,19 @@
 
 .star.filled {
   color: var(--amber);
+  animation: star-pop var(--dur-fast) var(--ease-spring);
+}
+
+@keyframes star-pop {
+  0% {
+    transform: scale(1);
+  }
+  50% {
+    transform: scale(1.4);
+  }
+  100% {
+    transform: scale(1);
+  }
 }
 
 .rating-footer {
