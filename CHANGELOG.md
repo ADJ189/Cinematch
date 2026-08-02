@@ -2,6 +2,43 @@
 
 All notable changes to this project are documented here.
 
+## [1.4.1] — Custom icon set, warmer light theme
+
+A continuation of 1.4.0's "closer to seriesgraph.com" pass — this part is
+the visual craft layer on top of last version's functional one (local
+profile, watchlist, hover preview).
+
+### Added
+- **`src/lib/icons.ts`** — a small custom inline-SVG icon set replacing the emoji chrome that was scattered through buttons and badges (🔀🌙☀️🍅Ⓜ️⭐✕ℹ️). Emoji render inconsistently across OS/browser (different weight, color, sometimes a completely different silhouette); a custom set inherits `currentColor` so it themes for free and reads as considered rather than default. Wired into the theme toggle, shuffle/back/close buttons, rating badges, the results note banner, and the empty-state actions.
+- Rating rows (hover preview + detail modal) now use a middle-dot separator between icon+label pairs (`⭐ 8.4 · 🍅 91% · IMDb 8.2` → the same idea, rendered with the new icons) — a small nod to the "eps · rating · votes" chip style used on seriesgraph.com's show pages.
+
+### Changed
+- **Light theme is warmer.** The neutral canvas (backgrounds, surfaces, borders) shifted from a cool violet-tinted white to a warm cream/paper base — closer to the editorial, poster-forward feel of sites like seriesgraph.com, whose own `theme-color` is a warm `#f4eff0`. The violet/cyan/amber accent colors are unchanged; only the neutral canvas underneath them moved warm, since that's what was reading as "generic dark-app light-mode" rather than a considered light theme.
+- `theme-color` meta (static in `index.html` and the JS-driven update in `src/lib/theme.ts`) both updated to match.
+
+### Scope note
+The per-option emoji on the quiz screen (mood/era/company/etc.) were left as-is — replacing dozens of option icons is a much larger, separate pass, and unlike the button/badge chrome, playful per-choice emoji in a quiz UI is a reasonably normal pattern rather than a polish problem.
+
+## [1.4.0] — Local profile, watchlist, richer result previews
+
+Moves the app from "everything resets when you close the tab" toward the
+seriesgraph.com-style feel of a site that remembers you — without adding a
+backend, a password, or anything that leaves the browser.
+
+### Added
+- **Local profile (`src/lib/profile.ts`).** A localStorage-backed identity — display name, avatar, and a full rating history — created automatically on first visit, no signup. Framed honestly in the UI as exactly what it is: on-this-device only, nothing synced, nothing sent anywhere. Falls back to session-only behavior (rather than crashing) if the browser is blocking storage (private mode etc.), and says so.
+- **Ratings persist across sessions**, both from the calibration screen and the results screen. Closing the tab no longer resets your taste profile.
+- **The engine now uses that whole history, every run.** Every previously-rated title (not just this session's) is fed into `engine.processResultRating()` before scoring, and excluded from ever being re-recommended — so a returning user's very first batch is already informed instead of a cold start every time. This is the concrete version of "let the AI use more data."
+- **Watchlist.** A bookmark toggle on every result card and in the detail modal, a persistent watchlist panel in the header's profile popover (reachable from every screen), stored in the same local profile.
+- **Hover/click info preview.** Hovering a result poster now reveals a quick-glance panel — synopsis snippet + TMDB/RT/IMDb ratings — using data already on the card (no extra fetch). Clicking still opens the full detail modal (cast-level synopsis, full ratings breakdown, trailer link, watchlist toggle, rate). Touch devices skip straight to the tap-through modal since there's no hover state to reveal the panel in.
+- A landing-screen "Welcome back" banner for returning profiles, showing how many titles have been rated on this device and swapping the CTA to "Get fresh picks."
+
+### Changed
+- Landing page eyebrow copy updated from "no account" to "no server account / nothing leaves your device untracked" — still accurate (there's genuinely no backend or sync), now precise about what the local profile is.
+
+### Scope note
+This is the functional core of the "make it feel like seriesgraph.com" ask — persistence, a watchlist, richer previews. A full visual pass (new type scale, poster-wall layouts, a broader custom icon set matching that specific editorial look) is a separate, larger design pass and wasn't attempted wholesale here to avoid a half-finished reskin sitting on top of a half-tested one.
+
 ## [1.3.0] — Worker migration, three real bug fixes, resilience pass
 
 ### Fixed
