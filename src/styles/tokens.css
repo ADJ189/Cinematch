@@ -52,26 +52,34 @@
 
 /* Light theme — toggled via data-theme="light" on <html>, persisted in
    localStorage (see src/lib/theme.ts). Same token names throughout the
-   app, so no component CSS needs to know which theme is active. */
-:root[data-theme='light'] {
-  --bg-0: #faf9fd;
-  --bg-1: #f3f1fa;
-  --bg-2: #ece8f7;
-  --surface: #ffffff;
-  --surface-hover: #f4f1fc;
-  --border: rgba(124, 92, 240, 0.16);
-  --border-strong: rgba(124, 92, 240, 0.32);
-  --overlay: rgba(20, 15, 40, 0.5);
+   app, so no component CSS needs to know which theme is active.
 
-  --text-primary: #1c1730;
-  --text-secondary: #5c5578;
-  --text-muted: #8b84a6;
+   The neutral canvas (backgrounds/surfaces/borders) is warm — a cream/
+   paper base rather than a cool violet-tinted white — closer to the
+   editorial, poster-forward feel of sites like seriesgraph.com (whose
+   own theme-color is a warm #f4eff0). The violet/cyan/amber accents stay
+   put: they're the part of the identity worth keeping, it's the neutral
+   canvas underneath that reads as "generic dark-app light-mode" if left
+   cool-toned. */
+:root[data-theme='light'] {
+  --bg-0: #f7f3ee;
+  --bg-1: #f1ebe2;
+  --bg-2: #e9e1d4;
+  --surface: #fffdf9;
+  --surface-hover: #f4ece0;
+  --border: rgba(120, 90, 50, 0.14);
+  --border-strong: rgba(120, 90, 50, 0.28);
+  --overlay: rgba(30, 22, 12, 0.5);
+
+  --text-primary: #241d14;
+  --text-secondary: #6b5f4d;
+  --text-muted: #96876d;
 
   --violet: #7c5cf0;
   --violet-dim: #6a45e6;
-  --cyan: #0891a8;
-  --pink: #db2f7f;
-  --amber: #b45309;
+  --cyan: #0b7d8f;
+  --pink: #c22a6e;
+  --amber: #b2530f;
 }
 
 @media (prefers-reduced-motion: reduce) {

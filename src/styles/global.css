@@ -4,6 +4,21 @@
   box-sizing: border-box;
 }
 
+/* The inline-SVG icon set (src/lib/icons.ts) — drops into text flow like
+   an emoji glyph did, but inherits currentColor so it themes for free. */
+.icon-inline {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+  vertical-align: -3px;
+}
+
+.icon-inline svg {
+  width: 100%;
+  height: 100%;
+}
+
 html {
   transition: background-color var(--dur-med) var(--ease-smooth);
 }

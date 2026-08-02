@@ -165,6 +165,102 @@
   transform: translateY(0);
 }
 
+/* The "small box on hover" quick-glance panel: synopsis + ratings, no
+   extra fetch (everything here is already on the ScoredItem). Pure CSS —
+   opacity/transform on :hover — so touch devices just skip straight to
+   the tap-through full modal instead of getting stuck on a hover state
+   that never fires. */
+.result-hover-preview {
+  position: absolute;
+  inset: 0;
+  display: flex;
+  flex-direction: column;
+  justify-content: flex-end;
+  gap: 6px;
+  padding: 14px 12px 12px;
+  background: linear-gradient(to top, rgba(7, 5, 15, 0.94) 0%, rgba(7, 5, 15, 0.75) 55%, rgba(7, 5, 15, 0.1) 100%);
+  opacity: 0;
+  transform: translateY(6px);
+  transition: opacity var(--dur-fast) var(--ease-smooth), transform var(--dur-fast) var(--ease-smooth);
+  pointer-events: none;
+}
+
+.result-poster:hover .result-hover-preview {
+  opacity: 1;
+  transform: translateY(0);
+}
+
+.hover-preview-overview {
+  font-size: 12px;
+  line-height: 1.45;
+  color: #f4f2fb;
+}
+
+.hover-preview-ratings {
+  display: flex;
+  align-items: center;
+  flex-wrap: wrap;
+  gap: 2px;
+  font-family: var(--font-mono);
+  font-size: 11px;
+  color: #e2ddf5;
+}
+
+.hover-preview-cta {
+  display: inline-flex;
+  align-items: center;
+  font-size: 11px;
+  font-weight: 600;
+  color: var(--cyan);
+}
+
+.rating-sep {
+  color: var(--text-muted);
+  margin: 0 2px;
+}
+
+/* Touch devices have no hover state to reveal this in — a tap on the
+   poster already opens the full modal, which is strictly more complete,
+   so nothing is lost. */
+@media (hover: none) {
+  .result-hover-preview,
+  .result-poster-overlay {
+    display: none;
+  }
+}
+
+.watchlist-btn {
+  position: absolute;
+  top: 8px;
+  right: 8px;
+  width: 32px;
+  height: 32px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+  background: rgba(7, 5, 15, 0.55);
+  border-radius: var(--radius-pill);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  transition: color var(--dur-fast), transform var(--dur-fast) var(--ease-spring), background var(--dur-fast);
+  z-index: 1;
+}
+
+.watchlist-btn svg {
+  width: 16px;
+  height: 16px;
+}
+
+.watchlist-btn:hover {
+  transform: scale(1.1);
+  background: rgba(7, 5, 15, 0.75);
+}
+
+.watchlist-btn.active {
+  color: var(--amber);
+}
+
 .result-body {
   padding: 14px;
   display: flex;
@@ -204,10 +300,17 @@
 
 .badge {
   align-self: flex-start;
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
   font-size: 12px;
   padding: 2px 8px;
   border-radius: var(--radius-pill);
   background: var(--surface-hover);
+}
+
+.badge-rt {
+  color: #ef4444;
 }
 
 .result-reasons {
