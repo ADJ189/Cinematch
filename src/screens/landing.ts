@@ -1,4 +1,5 @@
 import { el, mount } from '../lib/dom';
+import { getProfile, getStats } from '../lib/profile';
 import { store } from '../lib/store';
 import { isTmdbConfigured } from '../lib/tmdb';
 
@@ -21,14 +22,33 @@ export function renderLanding(root: HTMLElement): () => void {
         ]
       );
 
+  const stats = getStats();
+  const welcomeBack =
+    stats.ratedCount > 0
+      ? (() => {
+          const p = getProfile();
+          return el('div', { class: 'welcome-back stagger-in' }, [
+            el('span', { class: 'avatar-circle', style: `background:${p.avatarColor}` }, [
+              p.displayName.charAt(0).toUpperCase(),
+            ]),
+            el('p', {}, [
+              `Welcome back, ${p.displayName} — `,
+              `${stats.ratedCount} title${stats.ratedCount === 1 ? '' : 's'} rated on this device so far. `,
+              'New picks build on all of it, not just this session.',
+            ]),
+          ]);
+        })()
+      : null;
+
   const screen = el('div', { class: 'screen landing' }, [
     canvas,
     el('div', { class: 'landing-content' }, [
-      el('span', { class: 'eyebrow' }, ['no account · no tracking · no algorithm mystery box']),
+      el('span', { class: 'eyebrow' }, ['no server account · nothing leaves your device untracked · no algorithm mystery box']),
       el('h1', { class: 'landing-title' }, ['Find what to watch, in 60 seconds']),
       el('p', { class: 'landing-sub' }, [
         'Six quick questions, a few titles you already know, and a live pull from thousands of movies and shows — matched to you, not to what everyone else is watching.',
       ]),
+      ...(welcomeBack ? [welcomeBack] : []),
       el('div', { class: 'landing-actions' }, [
         el(
           'button',
@@ -36,7 +56,7 @@ export function renderLanding(root: HTMLElement): () => void {
             class: 'btn btn-primary',
             onclick: () => store.setScreen('quiz'),
           },
-          ['Start matching', ' →']
+          [stats.ratedCount > 0 ? 'Get fresh picks' : 'Start matching', ' →']
         ),
       ]),
       ...(warning ? [warning] : []),

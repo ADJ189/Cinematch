@@ -1,6 +1,7 @@
 import { buildRatingPool } from '../lib/rating-pool';
 import { buildPosterImage, el, mount } from '../lib/dom';
 import { parseLetterboxdCsv } from '../lib/letterboxd';
+import { recordSeedRating } from '../lib/profile';
 import { store } from '../lib/store';
 import { posterUrl, searchTitle } from '../lib/tmdb';
 import type { RatingSeed, RatingValue } from '../lib/types';
@@ -137,6 +138,11 @@ export function renderRating(root: HTMLElement): () => void {
     if (card) {
       const starEls = card.querySelectorAll<HTMLButtonElement>('.star');
       starEls.forEach((s, i) => s.classList.toggle('filled', i < value));
+    }
+    const seed = seeds.find((s) => s.id === id);
+    if (seed) {
+      const signals = store.getState().ratingSignals[id] ?? [];
+      recordSeedRating(seed, signals, value);
     }
     syncFromStore();
   }
