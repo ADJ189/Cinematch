@@ -22,7 +22,8 @@ Six quick questions, a few titles you already know, and a live pull from thousan
 ## Features
 
 - **Live catalog, not a fixed list.** Every query hits TMDB's `/discover` endpoints directly — hundreds of candidates per query, filtered by genre, era, format, and language, so results actually change with your answers.
-- **Search a title, see what's actually similar.** A separate flow from the quiz: search any movie or show, and get similar titles pulled straight from TMDB's own recommendation data (collaborative filtering, with genre/cast overlap as a fallback) rather than re-scored against your quiz answers — taste isn't the same every session, and a single title's similarity is a different question than "what fits this user's stated preferences."
+- **Search a title, see what's actually similar** — or search an actor, director, or other crew and see their best-known work. A separate flow from the quiz: results come from TMDB's own recommendation/credit data rather than re-scored against your quiz answers, since taste isn't the same every session and a title's or person's own data doesn't depend on who's asking.
+- **Cast & crew, click-through.** Every title's detail view (search hero or the results modal) shows its top-billed cast and director(s)/creator(s) — click anyone to jump to their own page: photo, bio, and their best-known work ranked by rating. The Jellyfin/Plex "click an actor from the movie page" pattern.
 - **Streaming availability.** See where a title is available to stream, rent, or buy (region-aware, JustWatch data via TMDB) on both the search screen and the results detail modal, always with a link to the full listing.
 - **A local profile that remembers you — no account needed.** A lightweight, on-this-device identity is created automatically on first visit: your rating history and watchlist persist across sessions (closing the tab doesn't reset anything), and every past rating feeds back into the engine on your next visit, so a returning session starts already informed instead of cold. Nothing is a server account — there's no signup, no sync, nothing sent anywhere; reachable any time from the profile icon in the header, including a one-click reset. Pick from 11 colors and a curated set of film-themed icons for your avatar, or just keep the default initial letter.
 - **Watchlist.** Bookmark any result from its card or the detail modal; see and manage the list from the header on any screen.
@@ -92,6 +93,9 @@ src/
                     + reasons; era is a hard filter here, not just a score nudge
     providers-ui.ts shared watch-providers row builder — used by both the search screen and the
                     results detail modal so streaming availability looks identical everywhere
+    credits-ui.ts   shared cast/crew row builder — same reasoning as providers-ui.ts, for the
+                    "click an actor to see their page" pattern
+    rating-ui.ts    shared watchlist-button and star-row builders — used by results.ts and search.ts
     omdb.ts         optional secondary rating signal (Rotten Tomatoes / Metacritic / IMDb)
     letterboxd.ts   parses a Letterboxd ratings.csv export for taste calibration
     rating-pool.ts  builds the calibration list — ~75% genre-weighted to the quiz's mood when TMDB is available
@@ -117,7 +121,9 @@ worker/
 
 ### Search + similar titles vs. the quiz engine
 
-`search.ts` is deliberately not just "results.ts with a search box." The quiz flow scores candidates against *this user's* stated preferences from *this* session — the right model for "recommend me something," wrong for "what's actually similar to this one title," since a title's similarity doesn't depend on who's asking, and people's own taste isn't static from session to session either. So similarity comes from TMDB's own data instead: `getSimilarTitles()` merges `/recommendations` (collaborative filtering) with `/similar` (genre/cast/keyword overlap, used to fill gaps when recommendations data is thin) and doesn't run the result through `engine.ts` at all. The on-device AI is still available here — same `explainPick()` used by the quiz flow, just given a similarity-framed prompt instead of a quiz summary.
+`search.ts` is deliberately not just "results.ts with a search box." The quiz flow scores candidates against *this user's* stated preferences from *this* session — the right model for "recommend me something," wrong for "what's actually similar to this one title" or "what's this person's best work," since neither depends on who's asking, and people's own taste isn't static from session to session either. So similarity comes from TMDB's own data instead: `getSimilarTitles()` merges `/recommendations` (collaborative filtering) with `/similar` (genre/cast/keyword overlap, used to fill gaps when recommendations data is thin), and `getPersonBestWork()` ranks a person's combined filmography by rating with a vote-count floor. None of this runs through `engine.ts`. The on-device AI is still available for titles — same `explainPick()` used by the quiz flow, just given a similarity-framed prompt instead of a quiz summary.
+
+Cast & crew (`getCredits()`) ties the two together: every title shows its top-billed cast and director(s)/creator(s), and clicking any of them opens that person's page. From the results screen's modal, that means closing the modal and switching to the search screen already loaded there — see `store.openInSearch()` in `store.ts`.
 
 ### Performance
 

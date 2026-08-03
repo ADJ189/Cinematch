@@ -2,6 +2,26 @@
 
 All notable changes to this project are documented here.
 
+## [1.6.0] — Search actors/directors, cast & crew, person pages
+
+The Jellyfin/Plex "click a cast member to see their other work" pattern,
+built on top of what 1.5.0 added. Jellyfin itself is a self-hosted media
+*server* (C#/.NET, scans a local library) — a fundamentally different
+architecture from this client-only, no-library TMDB app, so there's no
+literal code to port. What carried over is the actual UX pattern, backed
+by TMDB's own person/credits data instead of a local library scan.
+
+### Added
+- **Search people, not just titles.** The search screen now runs a title search and a person search (`/search/person`) together — search "Denis Villeneuve" or "Zendaya" as directly as a movie title.
+- **Person pages.** Photo, department, birthday/place of birth, a short bio, and a "Best of {name}" grid — their combined filmography (`/person/{id}/combined_credits`) ranked by rating with a vote-count floor (same reasoning `discoverCandidates()` already applies elsewhere, so a one-review 9.8 short doesn't outrank a broadly-loved title).
+- **Cast & crew on every title.** Both the search screen's title hero and the quiz-results detail modal now show the top-billed cast and director(s)/creator(s) (`getCredits()` — director comes from the crew list for movies, from TMDB's separate `created_by` field for TV, which genuinely differ, not an oversight). Click anyone to jump straight to their person page — from the results modal, that means closing the modal and switching to the search screen already loaded on that person, via a new `store.openInSearch()` navigation helper.
+- **`getTitleDetails()`** in `tmdb.ts` — resolves a bare (id, type) to a full title, needed when navigation only carries an id (e.g. jumping to a title from someone's filmography).
+
+### Changed — code quality
+- **Extracted `src/lib/rating-ui.ts`.** The watchlist-toggle button and 5-star rating row were byte-for-byte duplicated between `results.ts` and `search.ts`; both now import one shared implementation.
+- **Extracted `src/lib/credits-ui.ts`** for the same reason, shared between the search hero and the results modal.
+- Net effect: two more real features shipped with *less* net duplication than before, not more — the shared-module pattern from 1.5.0 (`providers-ui.ts`) is now applied consistently rather than each new feature growing its own copy of card/button-building code.
+
 ## [1.5.0] — Title search + real similarity data, streaming availability, more avatars
 
 ### Added
