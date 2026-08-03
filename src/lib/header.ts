@@ -7,11 +7,25 @@
 
 import { buildPosterImage, el } from './dom';
 import { ICON } from './icons';
-import { getStats, getProfile, removeFromWatchlist, resetProfile, setDisplayName, isPersistenceAvailable } from './profile';
+import {
+  AVATAR_EMOJIS,
+  getStats,
+  getProfile,
+  removeFromWatchlist,
+  resetProfile,
+  setAvatar,
+  setDisplayName,
+  isPersistenceAvailable,
+} from './profile';
 import { posterUrl, tmdbDetailsUrl } from './tmdb';
 import { getTheme, toggleTheme } from './theme';
+import { store } from './store';
 
 const GITHUB_URL = 'https://github.com/ADJ189/Cinematch';
+const AVATAR_COLOR_CHOICES = [
+  '#a78bfa', '#22d3ee', '#f472b6', '#fbbf24', '#4ade80', '#f87171', '#60a5fa', '#c084fc', '#2dd4bf', '#fb923c',
+];
+const SEARCH_ICON = `<svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="8.6" cy="8.6" r="5.6" stroke="currentColor" stroke-width="1.6"/><path d="M17 17l-4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`;
 
 export function renderHeader(): HTMLElement {
   const themeBtn = el(
@@ -20,7 +34,8 @@ export function renderHeader(): HTMLElement {
     [themeIcon()]
   );
 
-  const profileBtn = el('button', { class: 'profile-btn', 'aria-label': 'Your profile & watchlist' }, [avatarInitial()]);
+  const profileBtn = el('button', { class: 'profile-btn', 'aria-label': 'Your profile & watchlist' });
+  profileBtn.appendChild(avatarContent());
   const popover = buildProfilePopover();
   let open = false;
 
@@ -37,6 +52,9 @@ export function renderHeader(): HTMLElement {
     }
   });
 
+  const searchBtn = el('button', { class: 'header-search-btn', 'aria-label': 'Search for a title', onclick: () => store.setScreen('search') });
+  searchBtn.innerHTML = `<span class="icon-inline" style="width:17px;height:17px">${SEARCH_ICON}</span>`;
+
   const header = el('header', { class: 'app-header' }, [
     el('div', { class: 'app-header-inner' }, [
       el('a', { class: 'app-brand', href: '/', 'aria-label': 'CineMatch home' }, [
@@ -44,6 +62,7 @@ export function renderHeader(): HTMLElement {
         el('span', {}, ['CineMatch']),
       ]),
       el('div', { class: 'app-header-actions' }, [
+        searchBtn,
         themeBtn,
         el('div', { class: 'profile-wrap' }, [profileBtn, popover]),
         el(
@@ -66,12 +85,11 @@ export function renderHeader(): HTMLElement {
     themeBtn.replaceChildren(themeIcon());
   }
 
-  function avatarInitial(): HTMLElement {
+  function avatarContent(size: 'sm' | 'lg' = 'sm'): HTMLElement {
     const p = getProfile();
-    const avatar = el('span', { class: 'avatar-circle', style: `background:${p.avatarColor}` }, [
-      p.displayName.charAt(0).toUpperCase(),
+    return el('span', { class: `avatar-circle${size === 'lg' ? ' avatar-lg' : ''}`, style: `background:${p.avatarColor}` }, [
+      p.avatarEmoji ?? p.displayName.charAt(0).toUpperCase(),
     ]);
-    return avatar;
   }
 
   function refreshPopover() {
@@ -95,7 +113,7 @@ export function renderHeader(): HTMLElement {
     }) as HTMLInputElement;
     nameInput.addEventListener('change', () => {
       setDisplayName(nameInput.value);
-      profileBtn.replaceChildren(avatarInitial());
+      profileBtn.replaceChildren(avatarContent());
     });
 
     const persistenceNote = isPersistenceAvailable()
@@ -121,13 +139,54 @@ export function renderHeader(): HTMLElement {
       ]);
     });
 
+    const avatarPicker = el('div', { class: 'avatar-picker' }, [
+      el(
+        'div',
+        { class: 'avatar-picker-row' },
+        AVATAR_COLOR_CHOICES.map((color) =>
+          el('button', {
+            class: `avatar-swatch${p.avatarColor === color ? ' active' : ''}`,
+            style: `background:${color}`,
+            'aria-label': `Use this color`,
+            onclick: () => {
+              setAvatar(color, p.avatarEmoji);
+              profileBtn.replaceChildren(avatarContent());
+              refreshPopover();
+            },
+          })
+        )
+      ),
+      el(
+        'div',
+        { class: 'avatar-picker-row' },
+        [
+          el('button', {
+            class: `avatar-emoji-choice${!p.avatarEmoji ? ' active' : ''}`,
+            'aria-label': 'Use initial letter instead of an icon',
+            onclick: () => {
+              setAvatar(p.avatarColor, undefined);
+              profileBtn.replaceChildren(avatarContent());
+              refreshPopover();
+            },
+          }, [p.displayName.charAt(0).toUpperCase()]),
+          ...AVATAR_EMOJIS.map((emoji) =>
+            el('button', {
+              class: `avatar-emoji-choice${p.avatarEmoji === emoji ? ' active' : ''}`,
+              'aria-label': `Use ${emoji} as your avatar`,
+              onclick: () => {
+                setAvatar(p.avatarColor, emoji);
+                profileBtn.replaceChildren(avatarContent());
+                refreshPopover();
+              },
+            }, [emoji])
+          ),
+        ]
+      ),
+    ]);
+
     return [
-      el('div', { class: 'profile-popover-header' }, [
-        el('span', { class: 'avatar-circle avatar-lg', style: `background:${p.avatarColor}` }, [
-          p.displayName.charAt(0).toUpperCase(),
-        ]),
-        nameInput,
-      ]),
+      el('div', { class: 'profile-popover-header' }, [avatarContent('lg'), nameInput]),
+      avatarPicker,
       el('p', { class: 'profile-stats' }, [
         `${stats.ratedCount} title${stats.ratedCount === 1 ? '' : 's'} rated · ${stats.watchlistCount} saved`,
       ]),
@@ -145,7 +204,7 @@ export function renderHeader(): HTMLElement {
           onclick: () => {
             if (!confirm('Reset your local profile? This clears your rating history and watchlist on this device — it can\u2019t be undone.')) return;
             resetProfile();
-            profileBtn.replaceChildren(avatarInitial());
+            profileBtn.replaceChildren(avatarContent());
             refreshPopover();
           },
         },

@@ -34,6 +34,19 @@ export function tmdbDetailsUrl(id: number, tmdbType: 'movie' | 'tv'): string {
   return `https://www.themoviedb.org/${tmdbType}/${id}`;
 }
 
+// Session-lifetime cache, keyed by the fully-built request URL. TMDB data
+// for a given id/query is effectively static for the length of one visit
+// (a title's cast, ratings, and similar-titles list don't change minute
+// to minute), and several flows can request the exact same URL more than
+// once — reopening a detail modal, retyping a search query you already
+// ran, switching back to a title you just viewed. `inflight` also
+// collapses concurrent duplicate requests (e.g. two UI elements both
+// asking for the same title's watch providers on the same render) into
+// one network call instead of two.
+const responseCache = new Map<string, unknown>();
+const inflight = new Map<string, Promise<unknown>>();
+const CACHE_MAX = 300; // bounds memory on a very long session; oldest entries drop first
+
 /**
  * Fetches with a hard timeout and one retry. Mobile networks in particular
  * stall requests far more often than they hard-fail them — without a
@@ -44,25 +57,45 @@ async function tmdbFetch<T>(path: string, params: Record<string, string> = {}): 
   const url = new URL(`${API_BASE}${path}`);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
   if (!TOKEN && KEY) url.searchParams.set('api_key', KEY);
+  const cacheKey = url.toString();
 
+  const cached = responseCache.get(cacheKey);
+  if (cached !== undefined) return cached as T;
+
+  const existing = inflight.get(cacheKey);
+  if (existing) return existing as Promise<T>;
+
+  const promise = tmdbFetchUncached<T>(cacheKey).finally(() => inflight.delete(cacheKey));
+  inflight.set(cacheKey, promise);
+
+  const result = await promise;
+  if (responseCache.size >= CACHE_MAX) {
+    const oldest = responseCache.keys().next().value;
+    if (oldest !== undefined) responseCache.delete(oldest);
+  }
+  responseCache.set(cacheKey, result);
+  return result;
+}
+
+async function tmdbFetchUncached<T>(url: string): Promise<T> {
   let lastErr: unknown;
   for (let attempt = 0; attempt < 2; attempt++) {
     const controller = new AbortController();
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
-      const res = await fetch(url.toString(), {
+      const res = await fetch(url, {
         headers: TOKEN ? { Authorization: `Bearer ${TOKEN}` } : {},
         signal: controller.signal,
       });
       clearTimeout(timer);
-      if (!res.ok) throw new Error(`TMDB ${res.status}: ${path}`);
+      if (!res.ok) throw new Error(`TMDB ${res.status}: ${url}`);
       return (await res.json()) as T;
     } catch (err) {
       clearTimeout(timer);
       lastErr = err;
     }
   }
-  throw lastErr instanceof Error ? lastErr : new Error(`TMDB request failed: ${path}`);
+  throw lastErr instanceof Error ? lastErr : new Error(`TMDB request failed: ${url}`);
 }
 
 // ── Genre mapping ────────────────────────────────────────────────────────
@@ -319,4 +352,136 @@ export async function searchTitle(
   const first = data.results[0];
   if (!first) return null;
   return { id: first.id, posterPath: first.poster_path };
+}
+
+interface TmdbMultiSearchRaw extends TmdbRawResult {
+  media_type: 'movie' | 'tv' | 'person';
+}
+
+/**
+ * Free-text search across movies and TV in one call, for the "search a
+ * title" screen. Filters out `person` results (TMDB's /search/multi mixes
+ * actors/directors into the same endpoint) and anything with too few
+ * votes to be a meaningful search match, but keeps the threshold low
+ * (unlike discoverCandidates' 100-150) since a direct name search should
+ * still surface a title the user is specifically looking for even if
+ * it's obscure.
+ */
+export async function searchMulti(query: string): Promise<CatalogItem[]> {
+  const trimmed = query.trim();
+  if (!trimmed) return [];
+  const data = await tmdbFetch<{ results: TmdbMultiSearchRaw[] }>('/search/multi', {
+    query: trimmed,
+    include_adult: 'false',
+  });
+  const items: CatalogItem[] = [];
+  for (const raw of data.results) {
+    if (raw.media_type !== 'movie' && raw.media_type !== 'tv') continue;
+    const item = toCatalogItem(raw, raw.media_type);
+    if (item) items.push(item);
+  }
+  return items;
+}
+
+/**
+ * "People don't have the same taste every time" — rather than run a
+ * single title through our own quiz-calibrated genre/vibe engine (which
+ * is tuned for *this user's* stated preferences, not for "what's
+ * actually similar to this specific title"), this defers to TMDB's own
+ * similarity data: /recommendations (collaborative-filtering — what
+ * users who engaged with this title also engaged with) merged with
+ * /similar (genre/keyword/cast overlap) as a fallback for when
+ * recommendations is thin, which it often is for less mainstream titles.
+ * Deduped, with the source title itself excluded.
+ */
+export async function getSimilarTitles(id: number, tmdbType: 'movie' | 'tv'): Promise<CatalogItem[]> {
+  const [recs, similar] = await Promise.all([
+    tmdbFetch<{ results: TmdbRawResult[] }>(`/${tmdbType}/${id}/recommendations`, {}).catch(() => ({ results: [] })),
+    tmdbFetch<{ results: TmdbRawResult[] }>(`/${tmdbType}/${id}/similar`, {}).catch(() => ({ results: [] })),
+  ]);
+
+  const seen = new Set<number>([id]);
+  const items: CatalogItem[] = [];
+  // Recommendations first — it's the stronger signal — similar only fills gaps.
+  for (const raw of [...recs.results, ...similar.results]) {
+    if (seen.has(raw.id)) continue;
+    seen.add(raw.id);
+    const item = toCatalogItem(raw, tmdbType);
+    if (item) items.push(item);
+  }
+  return items;
+}
+
+export interface WatchProvider {
+  name: string;
+  logoPath: string | null;
+}
+
+export interface WatchProviders {
+  region: string;
+  link: string | null;
+  stream: WatchProvider[];
+  rent: WatchProvider[];
+  buy: WatchProvider[];
+}
+
+interface TmdbWatchProviderRaw {
+  provider_name: string;
+  logo_path: string | null;
+}
+
+interface TmdbWatchProvidersRaw {
+  link: string;
+  flatrate?: TmdbWatchProviderRaw[];
+  rent?: TmdbWatchProviderRaw[];
+  buy?: TmdbWatchProviderRaw[];
+}
+
+/**
+ * TMDB's /watch/providers is powered by JustWatch and is region-locked —
+ * results genuinely differ by country because of licensing, so this asks
+ * the browser for its locale (e.g. "en-US" → "US") rather than assuming
+ * one region for everyone. Falls back to US, the largest single dataset,
+ * when the locale can't be read as a country. Availability data is
+ * provided by JustWatch via TMDB, not guaranteed complete or current —
+ * always paired with a "check {provider}" link, never presented as a
+ * standalone purchase/play action.
+ */
+export async function getWatchProviders(id: number, tmdbType: 'movie' | 'tv'): Promise<WatchProviders | null> {
+  const region = guessRegion();
+  try {
+    const data = await tmdbFetch<{ results: Record<string, TmdbWatchProvidersRaw> }>(
+      `/${tmdbType}/${id}/watch/providers`,
+      {}
+    );
+    const entry = data.results[region] ?? data.results.US;
+    if (!entry) return null;
+    const toList = (arr?: TmdbWatchProviderRaw[]): WatchProvider[] =>
+      (arr ?? []).map((p) => ({ name: p.provider_name, logoPath: p.logo_path }));
+    return {
+      region: data.results[region] ? region : 'US',
+      link: entry.link ?? null,
+      stream: toList(entry.flatrate),
+      rent: toList(entry.rent),
+      buy: toList(entry.buy),
+    };
+  } catch {
+    return null;
+  }
+}
+
+function guessRegion(): string {
+  try {
+    const locale = navigator.languages?.[0] ?? navigator.language;
+    const parts = locale.split('-');
+    const region = parts[1]?.toUpperCase();
+    return region && region.length === 2 ? region : 'US';
+  } catch {
+    return 'US';
+  }
+}
+
+export function providerLogoUrl(logoPath: string | null): string | null {
+  if (!logoPath) return null;
+  return `${IMAGE_BASE}w92${logoPath}`;
 }

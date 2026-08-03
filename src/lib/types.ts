@@ -1,4 +1,4 @@
-export type Screen = 'landing' | 'quiz' | 'rating' | 'results';
+export type Screen = 'landing' | 'quiz' | 'rating' | 'results' | 'search';
 
 export type Genre = 'thriller' | 'comedy' | 'drama' | 'scifi' | 'horror' | 'adventure' | 'anime' | 'cartoon' | 'sitcom';
 export type Vibe = 'dark' | 'light' | 'intellectual' | 'feelgood' | 'epic';

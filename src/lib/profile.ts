@@ -52,13 +52,24 @@ export interface LocalProfile {
   id: string;
   displayName: string;
   avatarColor: string;
+  /** Optional — when unset, the header falls back to the display name's
+   * first letter (the original, simplest avatar). Picking one of
+   * AVATAR_EMOJIS is entirely optional polish, never required. */
+  avatarEmoji?: string;
   createdAt: number;
   lastVisitAt: number;
   history: HistoryEntry[];
   watchlist: WatchlistEntry[];
 }
 
-const AVATAR_COLORS = ['#a78bfa', '#22d3ee', '#f472b6', '#fbbf24', '#4ade80', '#f87171', '#60a5fa'];
+const AVATAR_COLORS = [
+  '#a78bfa', '#22d3ee', '#f472b6', '#fbbf24', '#4ade80', '#f87171', '#60a5fa',
+  '#c084fc', '#2dd4bf', '#fb923c', '#a3e635',
+];
+// A small, deliberately film-themed set rather than generic smileys —
+// keeps the picker feeling like part of this app rather than a bolted-on
+// generic avatar system.
+export const AVATAR_EMOJIS = ['🎬', '🍿', '🎭', '👾', '🐉', '🚀', '🔮', '🕵️', '👻', '🦇', '🧙', '📼'];
 const NAME_ADJECTIVES = ['Curious', 'Late-night', 'Weekend', 'Rainy-day', 'Popcorn', 'Marathon', 'Couch'];
 const NAME_NOUNS = ['Viewer', 'Watcher', 'Cinephile', 'Binger', 'Critic'];
 
@@ -142,6 +153,13 @@ export function isPersistenceAvailable(): boolean {
 export function setDisplayName(name: string): void {
   const p = getProfile();
   p.displayName = name.trim().slice(0, 40) || p.displayName;
+  writeRaw(p);
+}
+
+export function setAvatar(color: string, emoji: string | undefined): void {
+  const p = getProfile();
+  p.avatarColor = color;
+  p.avatarEmoji = emoji;
   writeRaw(p);
 }
 
