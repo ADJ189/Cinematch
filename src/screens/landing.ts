@@ -58,6 +58,11 @@ export function renderLanding(root: HTMLElement): () => void {
           },
           [stats.ratedCount > 0 ? 'Get fresh picks' : 'Start matching', ' →']
         ),
+        el(
+          'button',
+          { class: 'btn btn-ghost', onclick: () => store.setScreen('search') },
+          ['Or search a title you already love']
+        ),
       ]),
       ...(warning ? [warning] : []),
     ]),

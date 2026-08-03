@@ -1,7 +1,8 @@
 import { RecommendationEngine } from '../lib/engine';
 import { buildPosterImage, el, mount } from '../lib/dom';
 import { store } from '../lib/store';
-import { discoverCandidates, isTmdbConfigured, posterUrl, backdropUrl, tmdbDetailsUrl } from '../lib/tmdb';
+import { discoverCandidates, isTmdbConfigured, posterUrl, backdropUrl, getWatchProviders, tmdbDetailsUrl } from '../lib/tmdb';
+import { buildProvidersLoading, buildProvidersRow } from '../lib/providers-ui';
 import { fetchExternalRatings, isOmdbConfigured } from '../lib/omdb';
 import { enableLocalAi, explainPick, getLlmStatus, getLlmStatusDetail } from '../lib/llm';
 import { historyAsCatalogItems, historyRatingFor, isInWatchlist, recordRating, toggleWatchlist } from '../lib/profile';
@@ -636,6 +637,13 @@ export function renderResults(root: HTMLElement): () => void {
           return p;
         })(),
         el('p', { class: 'modal-overview' }, [item.overview || 'No synopsis available.']),
+        (() => {
+          const host = el('div', { class: 'modal-providers' }, [buildProvidersLoading()]);
+          void getWatchProviders(item.id, item.tmdbType)
+            .then((providers) => host.replaceChildren(buildProvidersRow(providers)))
+            .catch(() => host.replaceChildren(buildProvidersRow(null)));
+          return host;
+        })(),
         el('div', { class: 'modal-actions' }, [
           el(
             'a',
