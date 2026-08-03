@@ -123,6 +123,71 @@
   transition: transform var(--dur-fast) var(--ease-spring);
 }
 
+.header-search-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 32px;
+  height: 32px;
+  border-radius: var(--radius-pill);
+  color: var(--text-secondary);
+  transition: background var(--dur-fast), color var(--dur-fast);
+}
+
+.header-search-btn:hover {
+  background: var(--surface-hover);
+  color: var(--text-primary);
+}
+
+.avatar-picker {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.avatar-picker-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
+}
+
+.avatar-swatch {
+  width: 20px;
+  height: 20px;
+  border-radius: var(--radius-pill);
+  border: 2px solid transparent;
+  transition: transform var(--dur-fast) var(--ease-spring);
+}
+
+.avatar-swatch:hover {
+  transform: scale(1.15);
+}
+
+.avatar-swatch.active {
+  border-color: var(--text-primary);
+}
+
+.avatar-emoji-choice {
+  width: 26px;
+  height: 26px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 14px;
+  border-radius: var(--radius-sm);
+  background: var(--bg-1);
+  transition: background var(--dur-fast), transform var(--dur-fast) var(--ease-spring);
+}
+
+.avatar-emoji-choice:hover {
+  transform: scale(1.08);
+}
+
+.avatar-emoji-choice.active {
+  background: var(--surface-hover);
+  box-shadow: inset 0 0 0 1.5px var(--violet);
+}
+
 .profile-btn:hover {
   transform: scale(1.06);
 }
@@ -291,4 +356,9 @@
 
 .screen-host {
   min-height: calc(100dvh - var(--header-height));
+  transition: opacity var(--dur-fast) var(--ease-smooth);
+}
+
+.screen-host.screen-loading {
+  opacity: 0.6;
 }

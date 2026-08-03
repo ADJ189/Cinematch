@@ -1,0 +1,278 @@
+/* src/styles/search.css — the "search a title, see what's similar"
+   screen. Similar-title cards intentionally reuse .result-card and
+   friends from results.css (grid, poster, hover-preview, watchlist
+   button, star row) so they read as the same product, not a bolted-on
+   feature — only what's genuinely different (the search bar, the hero,
+   streaming availability) gets new rules here. */
+
+.search-screen {
+  max-width: var(--content-width);
+  margin: 0 auto;
+  padding: 32px 20px 80px;
+}
+
+.search-header h2 {
+  margin: 12px 0 4px;
+  font-family: var(--font-display);
+  font-size: 26px;
+}
+
+.search-sub {
+  max-width: 640px;
+  color: var(--text-secondary);
+  font-size: 14px;
+  line-height: 1.55;
+  margin-bottom: 18px;
+}
+
+.search-bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  max-width: 480px;
+  padding: 10px 14px;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-pill);
+  color: var(--text-muted);
+  transition: border-color var(--dur-fast);
+}
+
+.search-bar:focus-within {
+  border-color: var(--violet);
+}
+
+.search-input {
+  flex: 1;
+  min-width: 0;
+  background: transparent;
+  border: none;
+  outline: none;
+  font-size: 14px;
+  color: var(--text-primary);
+  font-family: var(--font-body);
+}
+
+.search-input::-webkit-search-cancel-button {
+  cursor: pointer;
+}
+
+.search-results-list {
+  max-width: 480px;
+  margin-top: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.search-result-row {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 6px 8px;
+  border-radius: var(--radius-sm);
+  text-align: left;
+  transition: background var(--dur-fast);
+}
+
+.search-result-row:hover {
+  background: var(--surface-hover);
+}
+
+.search-result-row .poster-frame {
+  width: 34px;
+  height: 50px;
+  flex-shrink: 0;
+  border-radius: 4px;
+}
+
+.search-result-meta {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 0;
+}
+
+.search-result-title {
+  font-size: 13px;
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.search-result-type {
+  font-size: 11px;
+  color: var(--text-muted);
+}
+
+.search-loading {
+  font-size: 13px;
+  color: var(--text-muted);
+  padding: 8px 4px;
+}
+
+.search-detail-host {
+  margin-top: 28px;
+}
+
+/* ── Hero — the selected title ──────────────────────────────────────── */
+
+.search-hero {
+  position: relative;
+  border-radius: var(--radius-lg);
+  overflow: hidden;
+  background: var(--surface);
+  border: 1px solid var(--border);
+}
+
+.search-hero::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  background-image: var(--hero-bg, none);
+  background-size: cover;
+  background-position: center 20%;
+  opacity: 0.16;
+  filter: blur(1px);
+  pointer-events: none;
+}
+
+.search-hero-inner {
+  position: relative;
+  display: flex;
+  gap: 24px;
+  padding: 24px;
+}
+
+.search-hero-inner .poster-frame {
+  width: 140px;
+  height: 210px;
+  flex-shrink: 0;
+  border-radius: var(--radius-md);
+}
+
+.search-hero-info {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  min-width: 0;
+}
+
+.search-hero-info h3 {
+  font-family: var(--font-display);
+  font-size: 22px;
+  margin: 0;
+}
+
+.search-hero-overview {
+  font-size: 14px;
+  line-height: 1.6;
+  color: var(--text-secondary);
+  max-width: 640px;
+}
+
+/* ── Streaming availability ───────────────────────────────────────── */
+
+.providers-block {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.providers-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.providers-label {
+  font-size: 11px;
+  font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.04em;
+  color: var(--text-muted);
+  width: 46px;
+  flex-shrink: 0;
+}
+
+.providers-logos {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  flex-wrap: wrap;
+}
+
+.provider-logo {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  object-fit: cover;
+}
+
+.provider-logo-fallback {
+  width: 28px;
+  height: 28px;
+  border-radius: 7px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 11px;
+  font-weight: 700;
+  background: var(--surface-hover);
+  color: var(--text-secondary);
+}
+
+.providers-link {
+  font-size: 12px;
+  color: var(--cyan);
+  margin-top: 2px;
+}
+
+.providers-note,
+.providers-empty {
+  font-size: 12px;
+  color: var(--text-muted);
+  max-width: 480px;
+}
+
+/* ── Similar-titles grid — mostly borrows .results-grid/.result-card ── */
+
+.search-similar-section {
+  margin-top: 32px;
+}
+
+.search-similar-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  flex-wrap: wrap;
+  gap: 10px;
+  margin-bottom: 16px;
+}
+
+.search-similar-header h3 {
+  font-family: var(--font-display);
+  font-size: 18px;
+  margin: 0;
+}
+
+/* The genre-overlap % reuses .result-match's position/font but is
+   deliberately quieter than the quiz screen's match% — it isn't a
+   personalized match score, and shouldn't look like one at a glance. */
+.search-overlap {
+  color: var(--text-secondary);
+  font-weight: 500;
+}
+
+@media (max-width: 640px) {
+  .search-hero-inner {
+    flex-direction: column;
+  }
+
+  .search-hero-inner .poster-frame {
+    width: 100px;
+    height: 150px;
+  }
+}

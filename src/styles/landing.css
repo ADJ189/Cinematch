@@ -75,6 +75,10 @@
 
 .landing-actions {
   margin-top: 12px;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
 }
 
 .config-warning {

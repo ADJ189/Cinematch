@@ -116,6 +116,10 @@
   line-height: 1.6;
 }
 
+.modal-providers {
+  margin-top: 2px;
+}
+
 .modal-actions {
   margin-top: 4px;
   display: flex;
