@@ -7,7 +7,7 @@
 // Auth: set VITE_TMDB_TOKEN (v4 read access token, preferred) or
 // VITE_TMDB_KEY (v3 api key) in a local .env file. Neither is committed.
 
-import type { CatalogItem, ContentType, Era, Format, Genre, Language, Vibe } from './types';
+import type { CastMember, CatalogItem, Credits, ContentType, CrewMember, Era, Format, Genre, Language, PersonDetails, PersonSummary, Vibe } from './types';
 
 const API_BASE = 'https://api.themoviedb.org/3';
 const IMAGE_BASE = 'https://image.tmdb.org/t/p/';
@@ -484,4 +484,144 @@ function guessRegion(): string {
 export function providerLogoUrl(logoPath: string | null): string | null {
   if (!logoPath) return null;
   return `${IMAGE_BASE}w92${logoPath}`;
+}
+
+export function personImageUrl(profilePath: string | null): string | null {
+  if (!profilePath) return null;
+  return `${IMAGE_BASE}w185${profilePath}`;
+}
+
+interface TmdbPersonSearchRaw {
+  id: number;
+  name: string;
+  profile_path: string | null;
+  known_for_department: string;
+}
+
+/** Search for a person (actor, director, etc.) by name. Kept separate
+ * from searchMulti() rather than folded in — a title search and a
+ * person search want different follow-up actions (similar titles vs. a
+ * filmography), so the search screen treats them as parallel result
+ * lists rather than one merged, type-ambiguous list. */
+export async function searchPeople(query: string): Promise<PersonSummary[]> {
+  const trimmed = query.trim();
+  if (!trimmed) return [];
+  const data = await tmdbFetch<{ results: TmdbPersonSearchRaw[] }>('/search/person', {
+    query: trimmed,
+    include_adult: 'false',
+  });
+  return data.results
+    .filter((p) => p.known_for_department) // filters out near-empty/junk entries
+    .map((p) => ({ id: p.id, name: p.name, profilePath: p.profile_path, knownForDepartment: p.known_for_department }));
+}
+
+interface TmdbCastRaw {
+  id: number;
+  name: string;
+  character: string;
+  profile_path: string | null;
+  order: number;
+}
+interface TmdbCrewRaw {
+  id: number;
+  name: string;
+  job: string;
+  profile_path: string | null;
+}
+interface TmdbCreatedByRaw {
+  id: number;
+  name: string;
+  profile_path: string | null;
+}
+
+/**
+ * Cast + director(s)/creator(s) for one title. Movies carry directors in
+ * the crew list (job === 'Director'); TV shows put creators in a
+ * separate top-level `created_by` field instead — TMDB's schema
+ * genuinely differs here, not an oversight, so both are checked.
+ */
+export async function getCredits(id: number, tmdbType: 'movie' | 'tv'): Promise<Credits> {
+  const data = await tmdbFetch<{
+    cast: TmdbCastRaw[];
+    crew: TmdbCrewRaw[];
+    created_by?: TmdbCreatedByRaw[];
+  }>(`/${tmdbType}/${id}/credits`, {});
+
+  const cast: CastMember[] = [...data.cast]
+    .sort((a, b) => a.order - b.order)
+    .slice(0, 12)
+    .map((c) => ({ id: c.id, name: c.name, character: c.character, profilePath: c.profile_path }));
+
+  const directors: CrewMember[] =
+    tmdbType === 'movie'
+      ? data.crew
+          .filter((c) => c.job === 'Director')
+          .map((c) => ({ id: c.id, name: c.name, job: 'Director', profilePath: c.profile_path }))
+      : (data.created_by ?? []).map((c) => ({ id: c.id, name: c.name, job: 'Creator', profilePath: c.profile_path }));
+
+  return { cast, directors };
+}
+
+interface TmdbPersonDetailsRaw {
+  id: number;
+  name: string;
+  profile_path: string | null;
+  known_for_department: string;
+  biography: string;
+  birthday: string | null;
+  place_of_birth: string | null;
+}
+
+interface TmdbCombinedCreditRaw extends TmdbRawResult {
+  media_type: 'movie' | 'tv';
+}
+
+export async function getPersonDetails(id: number): Promise<PersonDetails> {
+  const p = await tmdbFetch<TmdbPersonDetailsRaw>(`/person/${id}`, {});
+  return {
+    id: p.id,
+    name: p.name,
+    profilePath: p.profile_path,
+    knownForDepartment: p.known_for_department,
+    biography: p.biography,
+    birthday: p.birthday,
+    placeOfBirth: p.place_of_birth,
+  };
+}
+
+interface TmdbDetailsRaw extends Omit<TmdbRawResult, 'genre_ids'> {
+  genres: { id: number; name: string }[];
+}
+
+/** Resolves a bare (id, tmdbType) to a full CatalogItem — needed when
+ * navigation only carries an id, e.g. jumping to a title from a person's
+ * filmography or a "pending search target" set by another screen.
+ * /movie/{id} and /tv/{id} return `genres` as {id,name} objects rather
+ * than the bare id array /discover and /search return, so this adapts
+ * that shape before reusing the same toCatalogItem() mapper. */
+export async function getTitleDetails(id: number, tmdbType: 'movie' | 'tv'): Promise<CatalogItem | null> {
+  const raw = await tmdbFetch<TmdbDetailsRaw>(`/${tmdbType}/${id}`, {});
+  return toCatalogItem({ ...raw, genre_ids: raw.genres.map((g) => g.id) }, tmdbType);
+}
+
+/**
+ * A person's best-known work, for the "best movies & shows" section of
+ * their page — ranked by vote average with a vote-count floor (so a
+ * one-review 9.8 short film doesn't outrank a broadly-loved title), the
+ * same reasoning discoverCandidates() already applies elsewhere.
+ */
+export async function getPersonBestWork(id: number, limit = 12): Promise<CatalogItem[]> {
+  const data = await tmdbFetch<{ cast: TmdbCombinedCreditRaw[]; crew: TmdbCombinedCreditRaw[] }>(
+    `/person/${id}/combined_credits`,
+    {}
+  );
+  const seen = new Set<number>();
+  const items: CatalogItem[] = [];
+  for (const raw of [...data.cast, ...data.crew]) {
+    if (seen.has(raw.id) || raw.vote_count < 50) continue;
+    seen.add(raw.id);
+    const item = toCatalogItem(raw, raw.media_type);
+    if (item) items.push(item);
+  }
+  return items.sort((a, b) => b.voteAverage - a.voteAverage).slice(0, limit);
 }

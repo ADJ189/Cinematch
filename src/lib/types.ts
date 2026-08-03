@@ -98,4 +98,45 @@ export interface AppState {
   results: ScoredItem[];
   loading: boolean;
   error: string | null;
+  /** Set by "jump to this person/title" actions (e.g. clicking a cast
+   * member in the results detail modal) alongside switching to the
+   * search screen — search.ts reads and clears this on mount instead of
+   * showing an empty search box, since the intent was already explicit. */
+  pendingSearchTarget: SearchTarget | null;
+}
+
+export type SearchTarget = { kind: 'title'; id: number; tmdbType: 'movie' | 'tv' } | { kind: 'person'; id: number };
+
+/** A cast or crew credit as returned by /movie|tv/{id}/credits. */
+export interface CastMember {
+  id: number;
+  name: string;
+  character: string;
+  profilePath: string | null;
+}
+
+export interface CrewMember {
+  id: number;
+  name: string;
+  job: string;
+  profilePath: string | null;
+}
+
+export interface Credits {
+  cast: CastMember[];
+  directors: CrewMember[]; // job === 'Director' (movies) or the show's created_by (tv)
+}
+
+/** A person as returned by /search/person. */
+export interface PersonSummary {
+  id: number;
+  name: string;
+  profilePath: string | null;
+  knownForDepartment: string;
+}
+
+export interface PersonDetails extends PersonSummary {
+  biography: string;
+  birthday: string | null;
+  placeOfBirth: string | null;
 }

@@ -5,7 +5,7 @@
 // themselves on change.
 
 import { RATING_SEEDS, SEED_SIGNALS } from '../data/rating-seeds';
-import type { AppState, QuizAnswers, RatingValue, RatingSeed, ScoredItem, Screen } from './types';
+import type { AppState, QuizAnswers, RatingValue, RatingSeed, ScoredItem, Screen, SearchTarget } from './types';
 
 type Listener = (state: AppState) => void;
 
@@ -19,6 +19,7 @@ function createStore() {
     results: [],
     loading: false,
     error: null,
+    pendingSearchTarget: null,
   };
 
   const listeners = new Set<Listener>();
@@ -69,6 +70,20 @@ function createStore() {
       state = { ...state, results, loading: false, error: null };
       notify();
     },
+    /** Switches to the search screen already loaded on a specific title or
+     * person — used by "click a cast member" anywhere else in the app,
+     * so that action doesn't dead-end on an empty search box. */
+    openInSearch(target: SearchTarget) {
+      state = { ...state, screen: 'search', pendingSearchTarget: target, error: null };
+      notify();
+    },
+    /** search.ts calls this once it's consumed pendingSearchTarget, so a
+     * later plain navigation to the search screen doesn't replay it. */
+    clearPendingSearchTarget() {
+      if (!state.pendingSearchTarget) return;
+      state = { ...state, pendingSearchTarget: null };
+      notify();
+    },
     reset() {
       state = {
         screen: 'landing',
@@ -79,6 +94,7 @@ function createStore() {
         results: [],
         loading: false,
         error: null,
+        pendingSearchTarget: null,
       };
       notify();
     },
