@@ -2,6 +2,22 @@
 
 All notable changes to this project are documented here.
 
+## [1.5.0] — Title search + real similarity data, streaming availability, more avatars
+
+### Added
+- **Search screen (`src/screens/search.ts`).** Search for a specific movie or show and see what's actually similar to it. Deliberately *not* run through the quiz-calibrated engine — people's taste isn't the same every session, so a single title's similarity is better answered by TMDB's own data than by re-scoring it against stated quiz preferences from a different visit. `getSimilarTitles()` in `tmdb.ts` merges `/recommendations` (collaborative filtering — what people who engaged with this title also engaged with) with `/similar` (genre/keyword/cast overlap) as a fallback for titles where recommendations data is thin.
+- **Streaming availability**, originally slated for a later v1.4.5 — feasible to include now, so it shipped here instead. `getWatchProviders()` pulls TMDB's JustWatch-sourced region data (guessed from the browser's locale, falling back to US) and renders stream/rent/buy provider logos with a link to full availability. Shown on the search screen's hero and, for consistency, on the quiz-results detail modal too — loaded asynchronously so it never blocks the rest of the detail view from rendering. Always paired with a "full availability" link, never presented as a standalone play action, since JustWatch/TMDB data isn't guaranteed complete or current.
+- **On-device AI now also summarizes search-similar picks.** The same local model used to rewrite quiz-result reasons into one sentence (`explainPick()`) is reused here with a similarity-specific prompt instead of a quiz summary — "use AI to summarize/precise the recommends" is the same underlying feature applied to a second context, not a second AI integration.
+- **More avatar options.** The color palette grew from 7 to 11, and a small picker for a curated, film-themed emoji set (🎬🍿🎭👾🐉🚀🔮🕵️👻🦇🧙📼) was added to the profile popover — pick a color, an icon, or both. The plain initial-letter avatar is still there as the default/fallback, never required to change.
+
+### Changed — performance
+- **Screens are now lazily loaded.** Landing is the only screen bundled into the initial script; quiz/rating/results/search each became a separate chunk, fetched on first navigation to that screen. Initial JS dropped from ~17.4 kB gzip to ~9.5 kB gzip — meaningful for the (common) case of someone previewing the landing page and leaving, who now never downloads the search screen's TMDB-similarity/watch-provider code at all.
+- **`tmdbFetch()` now caches by request URL and de-dupes in-flight requests.** Reopening a detail modal, retyping a search you already ran, or two UI elements requesting the same title's watch providers in the same render all used to mean duplicate network calls; they now resolve from a session-lifetime cache (bounded to 300 entries) or collapse into the one request already in flight.
+- **Extracted `src/lib/providers-ui.ts`.** The watch-providers row was on track to become two near-identical implementations (search screen + results modal); it's a single shared module instead.
+
+### Scope note
+File count is up (`search.ts`, `providers-ui.ts`, `search.css` are new — see the README's file list for the full upload manifest). The per-option emoji on the quiz screen are still untouched, same reasoning as 1.4.1.
+
 ## [1.4.1] — Custom icon set, warmer light theme
 
 A continuation of 1.4.0's "closer to seriesgraph.com" pass — this part is
