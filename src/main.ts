@@ -6,6 +6,7 @@ import './styles/rating.css';
 import './styles/results.css';
 import './styles/modal.css';
 import './styles/search.css';
+import './styles/credits.css';
 
 import { renderLanding } from './screens/landing';
 import { store } from './lib/store';
