@@ -131,7 +131,7 @@ This is the functional core of the "make it feel like seriesgraph.com" ask — p
 - `engine.processRatings` now accumulates across repeated calls instead of overwriting, since the results screen re-runs it on every re-score.
 - README and SECURITY.md rewritten.
 
-## [0.9.0] — Full rebuild
+## [0.1 - 0.9.] — Full rebuild
 
 ### Fixed
 - **Recommendations no longer repeat regardless of quiz answers.** Root cause was two-fold: the AI recommendation call silently failed (Workers AI binding not active) and fell back to a client-side scorer running against a **hardcoded 30-title catalog**, whose flat quality bonus (`(rating - 7) * 5`, up to ±12.5) outweighed the actual quiz signal (max ±30 across 6 questions). Fixed by rewriting the scoring model and replacing the fixed catalog with a live TMDB pool.
