@@ -2,6 +2,15 @@
 
 All notable changes to this project are documented here.
 
+## [1.7.0] — Manual streaming region, contributor docs
+
+### Added
+- **Region picker for streaming availability.** `getWatchProviders()` used to silently guess your country from the browser's locale and never let you change it — wrong for a browser locale that doesn't match where you actually subscribe, checking availability somewhere you're traveling to, or a household with multiple regional accounts. A new `region.ts` persists an explicit override (or falls back to the old locale guess) across ~50 JustWatch-covered countries; a dropdown next to the provider logos (search hero + results detail modal) lets you switch instantly and re-fetches for the new region. `providers-ui.ts` now exports `mountProviders()`, which owns the whole fetch → render → refetch-on-change lifecycle, replacing the old pattern of each call site fetching providers itself and calling a pure row-builder.
+- **CONTRIBUTING.md, CODE_OF_CONDUCT.md, CREDITS.md, PRIVACY.md.** The README already had a short "Contributing" section and SECURITY.md already covered vulnerability reporting; these fill the remaining gaps a public repo's community-health checklist expects — a fuller PR/dev workflow doc, a Contributor Covenant code of conduct, attribution for the data sources and libraries this project depends on, and a plain-language explainer of what is and isn't collected (short version: nothing leaves the browser except the direct TMDB/OMDb API calls needed to fetch and score titles).
+
+### Roadmap note
+Letterboxd *review text* (not just star ratings, which `letterboxd.ts` already imports) is scoped for a future update — see the README's Roadmap section. Not part of this release.
+
 ## [1.6.0] — Search actors/directors, cast & crew, person pages
 
 The Jellyfin/Plex "click a cast member to see their other work" pattern,

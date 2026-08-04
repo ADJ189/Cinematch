@@ -13,7 +13,7 @@ Six quick questions, a few titles you already know, and a live pull from thousan
 [![No framework](https://img.shields.io/badge/framework-none-22d3ee?style=flat-square)](#stack)
 [![Deploy](https://img.shields.io/badge/deploy-Cloudflare%20Workers-f38020?style=flat-square)](#deploying-cloudflare-workers)
 
-[Features](#features) · [Setup](#setup) · [Architecture](#architecture) · [Deploying](#deploying-cloudflare-workers)
+[Features](#features) · [Setup](#setup) · [Architecture](#architecture) · [Deploying](#deploying-cloudflare-workers) · [Contributing](./CONTRIBUTING.md) · [Privacy](./PRIVACY.md)
 
 </div>
 
@@ -24,7 +24,7 @@ Six quick questions, a few titles you already know, and a live pull from thousan
 - **Live catalog, not a fixed list.** Every query hits TMDB's `/discover` endpoints directly — hundreds of candidates per query, filtered by genre, era, format, and language, so results actually change with your answers.
 - **Search a title, see what's actually similar** — or search an actor, director, or other crew and see their best-known work. A separate flow from the quiz: results come from TMDB's own recommendation/credit data rather than re-scored against your quiz answers, since taste isn't the same every session and a title's or person's own data doesn't depend on who's asking.
 - **Cast & crew, click-through.** Every title's detail view (search hero or the results modal) shows its top-billed cast and director(s)/creator(s) — click anyone to jump to their own page: photo, bio, and their best-known work ranked by rating. The Jellyfin/Plex "click an actor from the movie page" pattern.
-- **Streaming availability.** See where a title is available to stream, rent, or buy (region-aware, JustWatch data via TMDB) on both the search screen and the results detail modal, always with a link to the full listing.
+- **Streaming availability, with a manual region picker.** See where a title is available to stream, rent, or buy (JustWatch data via TMDB) on both the search screen and the results detail modal, always with a link to the full listing. Defaults to a guess from your browser's locale, but a title genuinely can be on Netflix in one country and unavailable — or on a different service entirely — in another, so a dropdown next to the provider logos lets you pick any of ~50 supported countries and re-checks instantly; your pick is remembered on this device (`src/lib/region.ts`).
 - **A local profile that remembers you — no account needed.** A lightweight, on-this-device identity is created automatically on first visit: your rating history and watchlist persist across sessions (closing the tab doesn't reset anything), and every past rating feeds back into the engine on your next visit, so a returning session starts already informed instead of cold. Nothing is a server account — there's no signup, no sync, nothing sent anywhere; reachable any time from the profile icon in the header, including a one-click reset. Pick from 11 colors and a curated set of film-themed icons for your avatar, or just keep the default initial letter.
 - **Watchlist.** Bookmark any result from its card or the detail modal; see and manage the list from the header on any screen.
 - **Hover for the quick take, click for the full picture.** Hovering a result reveals a quick synopsis + ratings preview right on the card; clicking opens the full detail modal — cast-level synopsis, TMDB/Rotten Tomatoes/Metacritic/IMDb scores, streaming availability, a trailer link, and the watchlist toggle.
@@ -91,8 +91,11 @@ src/
                     cached by request URL for the session, with in-flight de-duping
     engine.ts       scoring model — quiz + calibration ratings + in-session result ratings → matchPct
                     + reasons; era is a hard filter here, not just a score nudge
-    providers-ui.ts shared watch-providers row builder — used by both the search screen and the
-                    results detail modal so streaming availability looks identical everywhere
+    providers-ui.ts shared watch-providers section builder (region select + provider row) — used by
+                    both the search screen and the results detail modal so streaming availability
+                    looks and behaves identically everywhere
+    region.ts       the streaming-availability region: a manual override persisted to localStorage,
+                    falling back to a guess from the browser's locale; ~50 supported countries
     credits-ui.ts   shared cast/crew row builder — same reasoning as providers-ui.ts, for the
                     "click an actor to see their page" pattern
     rating-ui.ts    shared watchlist-button and star-row builders — used by results.ts and search.ts
@@ -161,6 +164,10 @@ This is a genuine Cloudflare Worker (`wrangler.jsonc` declares `main: worker/ind
 
 If you're redeploying over an existing deployment, don't rename the `name` field in `wrangler.jsonc` — `wrangler deploy` matches on that name, and renaming it creates a brand-new, unconfigured Worker instead of updating the one that already has your variables set.
 
+## Roadmap
+
+- **Letterboxd reviews.** `letterboxd.ts` currently only parses a `ratings.csv` export (star ratings, for taste calibration). Pulling in actual review *text* — either a CSV/export path or scraping a public profile — is planned but not started; Letterboxd has no public review API, so this needs more design work on where the data comes from before it's implementable. Tracked as a future update, not part of this release.
+
 ## Contributing
 
 Issues and PRs are welcome. Before opening a PR:
@@ -170,11 +177,19 @@ npm run typecheck   # must be clean — strict mode, no exceptions, covers src/ 
 npm run build       # must succeed
 ```
 
-Keep the "no framework" constraint in mind — new UI goes through `src/lib/dom.ts`'s `el()` helper, not a new dependency.
+Keep the "no framework" constraint in mind — new UI goes through `src/lib/dom.ts`'s `el()` helper, not a new dependency. See [CONTRIBUTING.md](./CONTRIBUTING.md) for the full workflow, project constraints, and what's in/out of scope. Participation is governed by the [Code of Conduct](./CODE_OF_CONDUCT.md).
+
+## Privacy
+
+No accounts, no analytics, no tracking — everything CineMatch remembers about you lives in your browser's localStorage, and the only network calls are the direct TMDB/OMDb requests needed to fetch and score titles. See [PRIVACY.md](./PRIVACY.md) for the full breakdown of what's sent where.
 
 ## Security
 
 `npm audit` reports 0 vulnerabilities as of this rebuild. See [SECURITY.md](./SECURITY.md) for the reporting policy. Dependabot is configured for weekly npm checks.
+
+## Credits
+
+TMDB, JustWatch (via TMDB), OMDb, and a handful of open-source libraries and design references make this project possible — see [CREDITS.md](./CREDITS.md) for full attribution.
 
 ## License
 

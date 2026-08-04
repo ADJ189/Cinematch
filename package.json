@@ -1,6 +1,6 @@
 {
   "name": "cinematch",
-  "version": "1.6.0",
+  "version": "1.7.0",
   "private": true,
   "type": "module",
   "description": "CineMatch \u2014 a fast, framework-free movie & TV recommendation engine.",
