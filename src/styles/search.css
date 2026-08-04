@@ -174,6 +174,43 @@
 
 /* ── Streaming availability ───────────────────────────────────────── */
 
+.providers-section {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  margin-top: 4px;
+}
+
+.region-select-wrap {
+  display: flex;
+}
+
+.region-select {
+  appearance: none;
+  background: var(--surface);
+  color: var(--text-secondary);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-sm);
+  padding: 5px 26px 5px 10px;
+  font-size: 11px;
+  font-family: var(--font-body);
+  cursor: pointer;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none'%3E%3Cpath d='M5.5 8l4.5 4.5L14.5 8' stroke='%23a79fc4' stroke-width='1.6' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 6px center;
+  background-size: 14px;
+}
+
+.region-select:hover {
+  border-color: var(--border-strong);
+  color: var(--text-primary);
+}
+
+.region-select:focus-visible {
+  outline: 2px solid var(--violet);
+  outline-offset: 1px;
+}
+
 .providers-block {
   display: flex;
   flex-direction: column;
