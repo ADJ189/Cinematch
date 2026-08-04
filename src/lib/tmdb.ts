@@ -8,6 +8,7 @@
 // VITE_TMDB_KEY (v3 api key) in a local .env file. Neither is committed.
 
 import type { CastMember, CatalogItem, Credits, ContentType, CrewMember, Era, Format, Genre, Language, PersonDetails, PersonSummary, Vibe } from './types';
+import { getRegion } from './region';
 
 const API_BASE = 'https://api.themoviedb.org/3';
 const IMAGE_BASE = 'https://image.tmdb.org/t/p/';
@@ -439,16 +440,17 @@ interface TmdbWatchProvidersRaw {
 
 /**
  * TMDB's /watch/providers is powered by JustWatch and is region-locked —
- * results genuinely differ by country because of licensing, so this asks
- * the browser for its locale (e.g. "en-US" → "US") rather than assuming
- * one region for everyone. Falls back to US, the largest single dataset,
- * when the locale can't be read as a country. Availability data is
- * provided by JustWatch via TMDB, not guaranteed complete or current —
- * always paired with a "check {provider}" link, never presented as a
- * standalone purchase/play action.
+ * results genuinely differ by country because of licensing. The region
+ * used is whatever `region.ts`'s getRegion() currently resolves to: a
+ * manual pick from the region selector if the user has made one, else a
+ * guess from the browser's locale (e.g. "en-US" → "US"), falling back to
+ * US, the largest single dataset. Availability data is provided by
+ * JustWatch via TMDB, not guaranteed complete or current — always paired
+ * with a "check {provider}" link, never presented as a standalone
+ * purchase/play action.
  */
 export async function getWatchProviders(id: number, tmdbType: 'movie' | 'tv'): Promise<WatchProviders | null> {
-  const region = guessRegion();
+  const region = getRegion();
   try {
     const data = await tmdbFetch<{ results: Record<string, TmdbWatchProvidersRaw> }>(
       `/${tmdbType}/${id}/watch/providers`,
@@ -467,17 +469,6 @@ export async function getWatchProviders(id: number, tmdbType: 'movie' | 'tv'): P
     };
   } catch {
     return null;
-  }
-}
-
-function guessRegion(): string {
-  try {
-    const locale = navigator.languages?.[0] ?? navigator.language;
-    const parts = locale.split('-');
-    const region = parts[1]?.toUpperCase();
-    return region && region.length === 2 ? region : 'US';
-  } catch {
-    return 'US';
   }
 }
 
