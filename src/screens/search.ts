@@ -15,17 +15,9 @@ import { buildPosterImage, el, mount } from '../lib/dom';
 import { ICON } from '../lib/icons';
 import { enableLocalAi, explainPick, getLlmStatus, getLlmStatusDetail } from '../lib/llm';
 import { isInWatchlist, recordRating, toggleWatchlist } from '../lib/profile';
-import { buildProvidersRow } from '../lib/providers-ui';
+import { mountProviders } from '../lib/providers-ui';
 import { store } from '../lib/store';
-import {
-  backdropUrl,
-  getSimilarTitles,
-  getWatchProviders,
-  posterUrl,
-  searchMulti,
-  tmdbDetailsUrl,
-  type WatchProviders,
-} from '../lib/tmdb';
+import { backdropUrl, getSimilarTitles, posterUrl, searchMulti, tmdbDetailsUrl } from '../lib/tmdb';
 import type { CatalogItem, RatingValue, ScoredItem } from '../lib/types';
 
 const SEARCH_DEBOUNCE_MS = 350;
@@ -144,17 +136,14 @@ export function renderSearch(root: HTMLElement): () => void {
     resultRatings.clear();
     host.replaceChildren(el('p', { class: 'search-loading' }, [`Finding titles similar to ${item.title}…`]));
 
-    const [similar, providers] = await Promise.all([
-      getSimilarTitles(item.id, item.tmdbType).catch(() => []),
-      getWatchProviders(item.id, item.tmdbType).catch(() => null),
-    ]);
+    const similar = await getSimilarTitles(item.id, item.tmdbType).catch(() => []);
     if (cancelled || selected !== item) return;
 
     similarItems = similar.slice(0, 24).map((s) => toSimilarItem(s, item));
-    drawDetail(item, similarItems, providers, host);
+    drawDetail(item, similarItems, host);
   }
 
-  function drawDetail(source: CatalogItem, results: ScoredItem[], providers: WatchProviders | null, host: HTMLElement) {
+  function drawDetail(source: CatalogItem, results: ScoredItem[], host: HTMLElement) {
     const backdrop = backdropUrl(source.backdropPath);
 
     const hero = el(
@@ -171,7 +160,11 @@ export function renderSearch(root: HTMLElement): () => void {
               { class: 'btn btn-ghost', href: tmdbDetailsUrl(source.id, source.tmdbType), target: '_blank', rel: 'noopener' },
               ['View on TMDB ↗']
             ),
-            buildProvidersRow(providers),
+            (() => {
+              const providersHost = el('div', { class: 'search-hero-providers' });
+              mountProviders(providersHost, source.id, source.tmdbType);
+              return providersHost;
+            })(),
           ]),
         ]),
       ]

@@ -1,8 +1,8 @@
 import { RecommendationEngine } from '../lib/engine';
 import { buildPosterImage, el, mount } from '../lib/dom';
 import { store } from '../lib/store';
-import { discoverCandidates, isTmdbConfigured, posterUrl, backdropUrl, getWatchProviders, tmdbDetailsUrl } from '../lib/tmdb';
-import { buildProvidersLoading, buildProvidersRow } from '../lib/providers-ui';
+import { discoverCandidates, isTmdbConfigured, posterUrl, backdropUrl, tmdbDetailsUrl } from '../lib/tmdb';
+import { mountProviders } from '../lib/providers-ui';
 import { fetchExternalRatings, isOmdbConfigured } from '../lib/omdb';
 import { enableLocalAi, explainPick, getLlmStatus, getLlmStatusDetail } from '../lib/llm';
 import { historyAsCatalogItems, historyRatingFor, isInWatchlist, recordRating, toggleWatchlist } from '../lib/profile';
@@ -622,6 +622,9 @@ export function renderResults(root: HTMLElement): () => void {
       buildPosterImage({ src: backdropSrc, alt: `${item.title} backdrop`, fallbackText: item.title.slice(0, 1), eager: true }),
     ]);
 
+    const providersHost = el('div', { class: 'modal-providers' });
+    mountProviders(providersHost, item.id, item.tmdbType);
+
     const modal = el('div', { class: 'modal-card' }, [
       closeBtn,
       hero,
@@ -637,13 +640,7 @@ export function renderResults(root: HTMLElement): () => void {
           return p;
         })(),
         el('p', { class: 'modal-overview' }, [item.overview || 'No synopsis available.']),
-        (() => {
-          const host = el('div', { class: 'modal-providers' }, [buildProvidersLoading()]);
-          void getWatchProviders(item.id, item.tmdbType)
-            .then((providers) => host.replaceChildren(buildProvidersRow(providers)))
-            .catch(() => host.replaceChildren(buildProvidersRow(null)));
-          return host;
-        })(),
+        providersHost,
         el('div', { class: 'modal-actions' }, [
           el(
             'a',
@@ -677,6 +674,7 @@ export function renderResults(root: HTMLElement): () => void {
     document.body.style.overflow = 'hidden';
 
     function close() {
+      providersHost.dispatchEvent(new Event('providers-unmount'));
       overlay.remove();
       document.body.style.overflow = '';
       document.removeEventListener('keydown', onKey);
