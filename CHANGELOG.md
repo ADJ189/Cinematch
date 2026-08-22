@@ -2,6 +2,14 @@
 
 All notable changes to this project are documented here.
 
+## [Unreleased] — Lint and Lighthouse CI
+
+### Added
+- **ESLint.** Flat-config setup (`eslint.config.js`) using `typescript-eslint`'s type-checked ruleset for `src/` and `worker/`, catching `any`-leaks, unhandled promises, and dead type assertions that `tsc` alone doesn't flag. `npm run lint` / `npm run lint:fix`.
+- **Lighthouse CI.** `lighthouserc.json` runs three headless-Chrome passes against the built `dist/` output and asserts on performance/accessibility/best-practices/SEO scores (accessibility is a hard `error` gate at 0.9; the rest `warn`). `npm run lhci`.
+- **CI workflow** (`.github/workflows/ci.yml`): on every push/PR, typecheck → lint → build → upload `dist` → run Lighthouse CI against it.
+- **TypeScript 7 / typescript-eslint compatibility.** TS 7.0's native (Go) compiler doesn't ship a programmatic API yet, which `typescript-eslint` needs — so `typescript` is aliased to Microsoft's `@typescript/typescript6` compatibility package (used by tooling), while `typescript-7` aliases the real `typescript@^7.0.2` package to keep `tsc` itself on the fast native compiler.
+
 ## [1.7.0] — Manual streaming region, contributor docs
 
 ### Added
