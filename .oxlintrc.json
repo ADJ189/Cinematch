@@ -1,0 +1,10 @@
+{
+  "$schema": "./node_modules/oxlint/configuration_schema.json",
+  "ignorePatterns": ["dist/**", "node_modules/**", ".wrangler/**"],
+  "rules": {
+    "no-unused-vars": "off",
+    "no-underscore-dangle": "off",
+    "unicorn/no-array-sort": "off",
+    "no-unused-expressions": "off"
+  }
+}

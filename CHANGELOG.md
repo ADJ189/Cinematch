@@ -5,10 +5,9 @@ All notable changes to this project are documented here.
 ## [Unreleased] — Lint and Lighthouse CI
 
 ### Added
-- **ESLint.** Flat-config setup (`eslint.config.js`) using `typescript-eslint`'s type-checked ruleset for `src/` and `worker/`, catching `any`-leaks, unhandled promises, and dead type assertions that `tsc` alone doesn't flag. `npm run lint` / `npm run lint:fix`.
-- **Lighthouse CI.** `lighthouserc.json` runs three headless-Chrome passes against the built `dist/` output and asserts on performance/accessibility/best-practices/SEO scores (accessibility is a hard `error` gate at 0.9; the rest `warn`). `npm run lhci`.
-- **CI workflow** (`.github/workflows/ci.yml`): on every push/PR, typecheck → lint → build → upload `dist` → run Lighthouse CI against it.
-- **TypeScript 7 / typescript-eslint compatibility.** TS 7.0's native (Go) compiler doesn't ship a programmatic API yet, which `typescript-eslint` needs — so `typescript` is aliased to Microsoft's `@typescript/typescript6` compatibility package (used by tooling), while `typescript-7` aliases the real `typescript@^7.0.2` package to keep `tsc` itself on the fast native compiler.
+- **oxlint.** Config in `.oxlintrc.json`, scripts `npm run lint` / `npm run lint:fix`. Chosen over ESLint/`typescript-eslint` because `typescript-eslint` hard-fails against TS 7's native compiler (no programmatic API yet — confirmed via live testing, known unresolved upstream gap pending TS 7.1); oxlint has no dependency on the `typescript` package so it's unaffected and needed no workarounds. Runs clean (0 findings) against the current codebase.
+- **Lighthouse CI.** `lighthouserc.json` runs three headless-Chrome passes (desktop preset) against the built `dist/` and asserts on the four category scores only — accessibility is a hard `error` gate at 0.9, performance/best-practices/SEO are `warn` at 0.85–0.9. (Deliberately not the `lighthouse:recommended` preset, which also hard-asserts individual diagnostic-only audits.)
+- **Two CI workflows:** `.github/workflows/ci.yml` (typecheck → lint → build, Node 22) and `.github/workflows/lighthouse.yml` (`treosh/lighthouse-ci-action` against the build).
 
 ## [1.7.0] — Manual streaming region, contributor docs
 
