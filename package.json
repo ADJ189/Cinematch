@@ -20,7 +20,7 @@
     "oxlint": "^1.79.0",
     "typescript": "^7.0.2",
     "vite": "^8.2.0",
-    "wrangler": "^4.121.0"
+    "wrangler": "^4.126.0"
   },
   "overrides": {
     "undici": "7.29.0"
