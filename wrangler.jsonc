@@ -4,7 +4,7 @@
   // Cloudflare project variables) — `wrangler deploy` matches on name, so
   // changing it creates a brand-new, unconfigured Worker instead of
   // updating the one you already have.
-  "name": "recommendation-engine",
+  "name": "cinematch",
   "main": "worker/index.ts",
   "compatibility_date": "2026-01-01",
   "assets": {
