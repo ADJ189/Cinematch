@@ -5,7 +5,7 @@
 # CineMatch
 
 **Find what to watch, in 60 seconds.**
-Six quick questions, a few titles you already know, and a live pull from thousands of real TMDB titles — matched to your taste, not re-sorted from a fixed list.
+Seven quick questions, a few titles you already know, and a live pull from thousands of real TMDB titles — matched to your taste, not re-sorted from a fixed list.
 
 [![Build](https://img.shields.io/badge/build-Vite%208-7c5cf0?style=flat-square)](https://vitejs.dev)
 [![TypeScript](https://img.shields.io/badge/TypeScript-strict-3178c6?style=flat-square)](https://www.typescriptlang.org)
@@ -117,10 +117,10 @@ src/
 worker/
   index.ts          the Cloudflare Worker entry point — serves dist/ via the ASSETS binding, handles
                      POST /api/recommend (OPTIONAL Workers AI re-ranking pass), and sets the
-                     COOP/COEP headers the on-device AI's multi-threaded WASM path needs
+                     COOP/COEP (`credentialless`) headers the on-device AI's multi-threaded WASM path needs, with TMDB images still loading
 ```
 
-**The client-side engine is fully self-sufficient.** `worker/index.ts`'s `/api/recommend` route is an enhancement layer, not a dependency — the app works completely without Workers AI enabled, and nothing in `src/` currently calls that route. If you do want it, you must turn the AI binding on in the Cloudflare dashboard (Settings → Bindings), not just declare it in `wrangler.jsonc`.
+**The client-side engine is fully self-sufficient.** `worker/index.ts`'s `/api/recommend` route is an enhancement layer, not a dependency — the app works completely without Workers AI enabled, and nothing in `src/` currently calls that route. It is same-origin only, size/shape-validated, redacts provider errors, and supports an optional per-IP rate limit (see the commented `ratelimits` example in `wrangler.jsonc`). If you do want it, you must turn the AI binding on in the Cloudflare dashboard (Settings → Bindings), not just declare it in `wrangler.jsonc`.
 
 ### Search + similar titles vs. the quiz engine
 

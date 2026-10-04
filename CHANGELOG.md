@@ -2,7 +2,37 @@
 
 All notable changes to this project are documented here.
 
-## [Unreleased] — Lint and Lighthouse CI
+## [1.8.0] — Audit fixes, security hardening, cinematic redesign
+
+### Security
+- **undici → 7.30.0** (npm `overrides`, lockfile regenerated). Clears all six reported advisories (the BalancedPool TLS bypass is fixed from 7.29.1; 7.30.0 is the newest 7.x). `npm audit` reports 0 vulnerabilities. undici is a dev-only transitive dependency of `wrangler`, so nothing ships to browsers.
+- **`/api/recommend` hardened:** same-origin only (wildcard CORS removed), 16 KB body cap, strict allow-list input schema, de-duplicated/validated model output (every candidate returned exactly once), generic client errors (provider text and raw model output now stay in server logs), optional per-IP rate-limit binding.
+- **COEP `require-corp` → `credentialless`.** Keeps the page cross-origin isolated for the on-device AI without blocking third-party TMDB images; also adds `nosniff` and a referrer policy to asset responses.
+
+### Fixed
+- **movie + sitcom returned zero candidates** (both media types disabled). Sitcom now forces series.
+- **TMDB outages looked like "No matches."** Discovery and similar-title lookups now distinguish "every request failed" (retryable outage state) from a genuinely empty result, which offers a one-click "Broaden my matches".
+- **Lazy-screen import failure left the app stuck loading.** Now shows a retry/reload state, with one guarded automatic reload for stale-chunk-after-deploy.
+- **Theme storage could crash startup** in storage-blocked browsers; all storage goes through `src/lib/storage.ts`.
+- **Profile JSON is now schema-validated** field by field; corrupt rows are dropped instead of trusted.
+- **Match % is absolute.** It used to be min/max-scaled per batch ("92%" meant "top of this batch"). Now a fixed calibration curve, so the same title/taste gives the same % across searches. A separate relative `rankPct` is kept for ordering.
+- **External (OMDb) ratings now influence ranking.** The top candidates are enriched (bounded concurrency, cached) before the scoring pass instead of after selection.
+- **Letterboxd import rewritten:** the whole export (most recent 400 rows) is resolved on TMDB by title + year, half-star precision is kept, results are de-duplicated by TMDB id and persisted to the profile, all of it calibrates the engine, and a summary reports imported / matched / unidentified.
+- **People/cast feature is wired end to end:** cast & director row in the detail sheet, person results in search, person pages, and the pending-search handoff.
+- Search requests are cancellable (`AbortController`); landing avatar honors the chosen emoji; landing copy says seven questions and no longer overclaims privacy; demo mode makes no TMDB poster lookups; streaming availability says when it fell back from your region; fluid canvas pauses when off-screen; search no longer autofocuses on touch devices.
+- **Accessibility:** detail view is a real dialog (focus moves in, Tab is trapped, Escape closes, focus returns, `aria-labelledby`); poster/title controls are real buttons with visible focus; reduced-motion removes movement instead of shrinking durations to 1ms.
+
+### Changed (design)
+- Landing: new headline/CTA, staged entrance, trust line, spotlight + grain backdrop.
+- Quiz: slide transitions (reverse on Back), option stagger, selection pulse, dot progress with stage labels.
+- Results: real-progress loading steps, featured #1 pick, themed shelves (Strong matches / Hidden gems / Worth a stretch), match meter with confidence label, "why it matched" chips, poster hover choreography, "Give me another".
+- Detail view: "Why this recommendation?", cast row, bottom sheet on mobile.
+- New design tokens: shadows, glows, focus ring, spacing scale, motion levels.
+
+### Not changed (still open from the audit)
+Watched/Not-for-me feedback, Tonight mode, Group Match, provider-aware filtering, browse collections, IMDb import, unit/E2E tests, and the shared-element poster transition are larger features and are not in this release.
+
+## [1.7.1] — Lint and Lighthouse CI
 
 ### Added
 - **oxlint.** Config in `.oxlintrc.json`, scripts `npm run lint` / `npm run lint:fix`. Chosen over ESLint/`typescript-eslint` because `typescript-eslint` hard-fails against TS 7's native compiler (no programmatic API yet — confirmed via live testing, known unresolved upstream gap pending TS 7.1); oxlint has no dependency on the `typescript` package so it's unaffected and needed no workarounds. Runs clean (0 findings) against the current codebase.
