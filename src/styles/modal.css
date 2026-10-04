@@ -141,3 +141,51 @@
   color: var(--text-muted);
   margin-top: 6px;
 }
+
+.why-box {
+  padding: 12px 14px;
+  border-radius: var(--radius-md);
+  background: var(--surface-hover);
+  border: 1px solid var(--border);
+}
+
+.why-box h4 {
+  margin: 0 0 6px;
+  font-family: var(--font-display);
+  font-size: 13px;
+}
+
+.why-box ul {
+  margin: 0;
+  padding-left: 18px;
+  display: flex;
+  flex-direction: column;
+  gap: 3px;
+  font-size: 13px;
+  color: var(--text-secondary);
+}
+
+.modal-card {
+  box-shadow: var(--shadow-elevated);
+}
+
+/* Mobile: a bottom sheet that slides up, not a centered desktop dialog. */
+@media (max-width: 640px) {
+  .modal-overlay {
+    align-items: flex-end;
+    padding: 0;
+  }
+
+  .modal-card {
+    max-width: none;
+    max-height: 92dvh;
+    border-radius: var(--radius-lg) var(--radius-lg) 0 0;
+    animation: sheet-in var(--motion-standard) var(--ease-smooth);
+    padding-bottom: env(safe-area-inset-bottom);
+  }
+
+  @keyframes sheet-in {
+    from { transform: translateY(40px); opacity: 0; }
+    to { transform: none; opacity: 1; }
+  }
+}
