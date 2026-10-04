@@ -29,7 +29,7 @@ export function renderLanding(root: HTMLElement): () => void {
           const p = getProfile();
           return el('div', { class: 'welcome-back stagger-in' }, [
             el('span', { class: 'avatar-circle', style: `background:${p.avatarColor}` }, [
-              p.displayName.charAt(0).toUpperCase(),
+              p.avatarEmoji ?? p.displayName.charAt(0).toUpperCase(),
             ]),
             el('p', {}, [
               `Welcome back, ${p.displayName} — `,
@@ -43,27 +43,28 @@ export function renderLanding(root: HTMLElement): () => void {
   const screen = el('div', { class: 'screen landing' }, [
     canvas,
     el('div', { class: 'landing-content' }, [
-      el('span', { class: 'eyebrow' }, ['no server account · nothing leaves your device untracked · no algorithm mystery box']),
-      el('h1', { class: 'landing-title' }, ['Find what to watch, in 60 seconds']),
-      el('p', { class: 'landing-sub' }, [
-        'Six quick questions, a few titles you already know, and a live pull from thousands of movies and shows — matched to you, not to what everyone else is watching.',
+      el('span', { class: 'eyebrow' }, ['no account · no cineMatch tracking · your profile stays on this device']),
+      el('h1', { class: 'landing-title reveal', style: '--reveal: 0' }, ['Find something you\u2019ll actually like']),
+      el('p', { class: 'landing-sub reveal', style: '--reveal: 1' }, [
+        'Seven quick questions, a few titles you already know, and a live pull from thousands of movies and shows — matched to you, not to what everyone else is watching.',
       ]),
       ...(welcomeBack ? [welcomeBack] : []),
-      el('div', { class: 'landing-actions' }, [
+      el('div', { class: 'landing-actions reveal', style: '--reveal: 2' }, [
         el(
           'button',
           {
             class: 'btn btn-primary',
             onclick: () => store.setScreen('quiz'),
           },
-          [stats.ratedCount > 0 ? 'Get fresh picks' : 'Start matching', ' →']
+          [stats.ratedCount > 0 ? 'Get fresh picks' : 'Find my next watch', ' →']
         ),
         el(
           'button',
           { class: 'btn btn-ghost', onclick: () => store.setScreen('search') },
-          ['Or search a title you already love']
+          ['Search a title you love']
         ),
       ]),
+      el('p', { class: 'landing-trust reveal', style: '--reveal: 3' }, ['7 questions · about a minute · no account required']),
       ...(warning ? [warning] : []),
     ]),
   ]);

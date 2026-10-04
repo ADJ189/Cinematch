@@ -1,7 +1,10 @@
 import { RecommendationEngine } from '../lib/engine';
 import { buildPosterImage, el, mount } from '../lib/dom';
 import { store } from '../lib/store';
-import { discoverCandidates, isTmdbConfigured, posterUrl, backdropUrl, tmdbDetailsUrl } from '../lib/tmdb';
+import { discoverCandidates, getCredits, isTmdbConfigured, posterUrl, backdropUrl, tmdbDetailsUrl, TmdbUnavailableError } from '../lib/tmdb';
+import { buildCreditsBlock } from '../lib/credits-ui';
+import { trapFocus } from '../lib/a11y';
+import { buildMatchMeter, buildReasonChips } from '../lib/match-ui';
 import { mountProviders } from '../lib/providers-ui';
 import { fetchExternalRatings, isOmdbConfigured } from '../lib/omdb';
 import { enableLocalAi, explainPick, getLlmStatus, getLlmStatusDetail } from '../lib/llm';
@@ -55,7 +58,7 @@ export function renderResults(root: HTMLElement): () => void {
   // calibration ratings already in the store) are the "rate more, get a
   // more curated response" loop — they never leave this screen's memory,
   // so restarting the flow starts clean.
-  const quizAnswers = store.getState().quizAnswers;
+  let quizAnswers = store.getState().quizAnswers;
   const seedRatings = store.getState().ratings;
   const ratingSeeds = store.getState().ratingSeeds;
   const ratingSignals = store.getState().ratingSignals;
@@ -70,7 +73,6 @@ export function renderResults(root: HTMLElement): () => void {
 
   const screen = el('div', { class: 'screen results' });
   mount(root, screen);
-  drawLoading();
   void run();
 
   function targetCount(): number {
@@ -83,12 +85,23 @@ export function renderResults(root: HTMLElement): () => void {
       return;
     }
 
+    drawLoading();
     try {
+      setPhase(0);
       const candidates = await discoverCandidates(filters());
       if (cancelled) return;
       pageOffset = 3;
       mergeCandidates(candidates);
 
+      // External ratings are fetched for the strongest candidates *before*
+      // the final scoring pass, so they can actually influence which
+      // titles make the batch (they used to be attached afterwards, for
+      // display only).
+      setPhase(1);
+      await enrichTopCandidates();
+      if (cancelled) return;
+
+      setPhase(2);
       const { batch } = await ensureBatch(targetCount());
       if (cancelled) return;
 
@@ -97,13 +110,14 @@ export function renderResults(root: HTMLElement): () => void {
         return;
       }
 
-      await enrichWithExternalRatings(batch);
-      if (cancelled) return;
-
       store.setResults(batch);
       draw(batch);
     } catch (err) {
       if (cancelled) return;
+      if (err instanceof TmdbUnavailableError) {
+        drawOutage();
+        return;
+      }
       const message = err instanceof Error ? err.message : 'Something went wrong fetching results.';
       store.setError(message);
       drawError(message);
@@ -140,7 +154,7 @@ export function renderResults(root: HTMLElement): () => void {
    * `opts` lets ensureBatch() reuse this for its fallback steps instead of
    * duplicating the scoring pipeline: ignoreShown lifts the "already
    * shown this session" exclusion, ignorePreciseFloor lifts the 68%+ bar. */
-  function rescore(count: number, opts: { ignoreShown?: boolean; ignorePreciseFloor?: boolean } = {}): ScoredItem[] {
+  function buildEngine(): RecommendationEngine {
     const engine = new RecommendationEngine();
     engine.processQuiz(quizAnswers);
     engine.processRatings(seedRatings, ratingSeeds, ratingSignals);
@@ -152,7 +166,11 @@ export function renderResults(root: HTMLElement): () => void {
     // this is what makes a returning user's first batch already informed
     // instead of a cold start every time (see src/lib/profile.ts).
     for (const { item, rating } of historyAsCatalogItems()) engine.processResultRating(item, rating);
+    return engine;
+  }
 
+  function rescore(count: number, opts: { ignoreShown?: boolean; ignorePreciseFloor?: boolean } = {}): ScoredItem[] {
+    const engine = buildEngine();
     const pool = allCandidates.filter((c) => !resultRatings.has(c.id) && historyRatingFor(c.id) === undefined);
     const scored = engine.getResults(pool, ratingSignals);
     let unseen = opts.ignoreShown ? scored : scored.filter((r) => !shownIds.has(r.id));
@@ -188,6 +206,7 @@ export function renderResults(root: HTMLElement): () => void {
         const more = await discoverCandidates(filters(), pageOffset);
         pageOffset += 3;
         mergeCandidates(more);
+        await enrichTopCandidates();
         batch = rescore(count, { ignoreShown: true });
         if (batch.length > 0) return { batch, note: null };
       } catch {
@@ -215,15 +234,29 @@ export function renderResults(root: HTMLElement): () => void {
     };
   }
 
-  async function enrichWithExternalRatings(batch: ScoredItem[]) {
+  const ENRICH_LIMIT = 24;
+  const ENRICH_CONCURRENCY = 6;
+
+  /** Pre-scores the pool, then fetches OMDb ratings for the best
+   * ENRICH_LIMIT unrated candidates (bounded concurrency; omdb.ts caches,
+   * so repeat passes are free). The ratings are written onto the shared
+   * candidate objects, so the real scoring pass that follows sees them. */
+  async function enrichTopCandidates() {
     if (!isOmdbConfigured) return;
-    const top = batch.slice(0, AI_REASON_LIMIT);
-    await Promise.all(
-      top.map(async (item) => {
-        const ext = await fetchExternalRatings(item.title, item.year);
-        if (ext) item.externalRatings = ext;
-      })
-    );
+    const pool = allCandidates.filter((c) => !c.externalRatings && !resultRatings.has(c.id));
+    const top = buildEngine()
+      .getResults(pool, ratingSignals)
+      .slice(0, ENRICH_LIMIT);
+    let next = 0;
+    const worker = async () => {
+      while (next < top.length && !cancelled) {
+        const entry = top[next++]!;
+        const ext = await fetchExternalRatings(entry.title, entry.year);
+        const original = itemsById.get(entry.id);
+        if (ext && original) original.externalRatings = ext;
+      }
+    };
+    await Promise.all(Array.from({ length: ENRICH_CONCURRENCY }, worker));
   }
 
   async function onDifferentPicks(btn: HTMLElement) {
@@ -234,9 +267,6 @@ export function renderResults(root: HTMLElement): () => void {
 
     try {
       const { batch, note } = await ensureBatch(targetCount());
-      if (cancelled) return;
-
-      await enrichWithExternalRatings(batch);
       if (cancelled) return;
 
       store.setResults(batch);
@@ -303,29 +333,55 @@ export function renderResults(root: HTMLElement): () => void {
     screen.querySelector('.curating-indicator')?.classList.toggle('visible', active);
   }
 
+  type Phase = 'fetch' | 'ratings' | 'rank';
+
+  /** Real progress, not theatre: each step flips to done when that stage of
+   * run() actually finishes. The OMDb step only exists if it will run. */
   function drawLoading() {
+    const steps: { id: Phase; label: string }[] = [
+      { id: 'fetch', label: 'Finding titles that fit your answers' },
+      ...(isOmdbConfigured ? [{ id: 'ratings' as Phase, label: 'Checking critic ratings' }] : []),
+      { id: 'rank', label: 'Ranking against your taste' },
+    ];
+    const list = el(
+      'ol',
+      { class: 'curate-steps', 'aria-label': 'Progress' },
+      steps.map((st) => el('li', { class: 'curate-step', 'data-phase': st.id }, [el('span', { class: 'curate-dot', 'aria-hidden': 'true' }), st.label]))
+    );
     const grid = el(
       'div',
       { class: 'results-grid' },
       Array.from({ length: 8 }, (_, i) =>
-        el('div', { class: 'result-card skeleton-card stagger-in', style: `--stagger: ${i}` }, [
+        el('div', { class: 'result-card skeleton-card stagger-in', style: `--stagger: ${i}`, 'aria-hidden': 'true' }, [
           el('div', { class: 'result-poster skeleton' }),
         ])
       )
     );
     mount(
       screen,
-      el('div', {}, [
-        el('div', { class: 'loading-banner' }, [
-          el('span', { class: 'spinner', 'aria-hidden': 'true' }),
-          el('div', {}, [
-            el('h2', {}, ['Finding your matches…']),
-            el('p', {}, ['Pulling live results from TMDB and scoring against your answers.']),
-          ]),
+      el('div', { class: 'curating' }, [
+        el('div', { class: 'curating-panel', role: 'status', 'aria-live': 'polite' }, [
+          el('p', { class: 'eyebrow' }, ['building your picks']),
+          el('h2', {}, ['Finding films that fit your answers\u2026']),
+          list,
         ]),
         grid,
       ])
     );
+  }
+
+  function setPhase(phase: 'fetch' | 'ratings' | 'rank' | 0 | 1 | 2) {
+    const order: Phase[] = ['fetch', 'ratings', 'rank'];
+    const id: Phase = typeof phase === 'number' ? order[phase]! : phase;
+    const steps = Array.from(screen.querySelectorAll<HTMLElement>('.curate-step'));
+    const activeIdx = steps.findIndex((n) => n.dataset.phase === id);
+    // With OMDb off there's no 'ratings' step; treat that phase as the
+    // one that follows 'fetch'.
+    const idx = activeIdx === -1 ? Math.min(steps.length - 1, order.indexOf(id) - (isOmdbConfigured ? 0 : 1)) : activeIdx;
+    steps.forEach((n, i) => {
+      n.classList.toggle('done', i < idx);
+      n.classList.toggle('active', i === idx);
+    });
   }
 
   function drawConfigError() {
@@ -341,26 +397,86 @@ export function renderResults(root: HTMLElement): () => void {
     );
   }
 
-  function drawError(message: string) {
+  /** Every TMDB request failed — an outage, auth or rate-limit problem,
+   * never a valid "no matches" result, so it gets its own honest state. */
+  function drawOutage() {
     mount(
       screen,
-      el('div', { class: 'state-message' }, [
-        el('h2', {}, ['Couldn\u2019t load results']),
-        el('p', {}, [message]),
-        el('button', { class: 'btn btn-primary', onclick: run }, ['Try again']),
+      el('div', { class: 'state-message', role: 'alert' }, [
+        el('h2', {}, ['We couldn\u2019t reach the movie database']),
+        el('p', {}, ['That\u2019s a connection or service problem, not your answers \u2014 they\u2019re safe. Give it another try.']),
+        el('div', { class: 'state-message-actions' }, [
+          el('button', { class: 'btn btn-primary', onclick: () => void run() }, ['Retry']),
+          el('button', { class: 'btn btn-ghost', onclick: () => store.setScreen('landing') }, ['← Back']),
+        ]),
       ])
     );
   }
 
+  function drawError(message: string) {
+    mount(
+      screen,
+      el('div', { class: 'state-message', role: 'alert' }, [
+        el('h2', {}, ['Couldn\u2019t load results']),
+        el('p', {}, [message]),
+        el('button', { class: 'btn btn-primary', onclick: () => void run() }, ['Try again']),
+      ])
+    );
+  }
+
+  /** Genuinely nothing fits (the pool loaded fine). Offers a one-click way
+   * to loosen the two hard filters instead of a dead end. */
   function drawEmpty() {
     mount(
       screen,
       el('div', { class: 'state-message' }, [
-        el('h2', {}, ['No matches for this combination']),
-        el('p', {}, ['Try loosening the era or language filter, or switch to Grouped mode.']),
-        el('button', { class: 'btn btn-ghost', onclick: () => store.setScreen('quiz') }, ['← Adjust answers']),
+        el('h2', {}, ['Nothing quite fits this combination']),
+        el('p', {}, ['Try loosening one preference \u2014 the era and language filters are the strictest.']),
+        el('div', { class: 'state-message-actions' }, [
+          el(
+            'button',
+            {
+              class: 'btn btn-primary',
+              onclick: () => {
+                quizAnswers = { ...quizAnswers, era: 'any', language: 'any_lang' };
+                allCandidates = [];
+                itemsById.clear();
+                shownIds.clear();
+                pageOffset = 0;
+                void run();
+              },
+            },
+            ['Broaden my matches']
+          ),
+          el('button', { class: 'btn btn-ghost', onclick: () => store.setScreen('quiz') }, ['← Change answers']),
+        ]),
       ])
     );
+  }
+
+  /** Splits one scored batch into a featured #1 plus themed shelves, so
+   * the list reads as curated choices instead of a sorted spreadsheet. */
+  function groupResults(results: ScoredItem[]) {
+    const [featured, ...rest] = results;
+    const pops = rest.map((r) => r.popularity).sort((x, y) => x - y);
+    const medianPop = pops.length ? pops[Math.floor(pops.length / 2)]! : 0;
+    const gems = rest.filter((r) => r.popularity <= medianPop && r.voteAverage >= 7.2 && r.matchPct >= 55).slice(0, 4);
+    const gemIds = new Set(gems.map((g) => g.id));
+    const others = rest.filter((r) => !gemIds.has(r.id));
+    return {
+      featured,
+      strongest: others.filter((r) => r.fit !== 'stretch'),
+      gems,
+      stretch: others.filter((r) => r.fit === 'stretch'),
+    };
+  }
+
+  function buildShelf(title: string, blurb: string, items: ScoredItem[], startIndex: number): HTMLElement | null {
+    if (items.length === 0) return null;
+    return el('section', { class: 'shelf' }, [
+      el('div', { class: 'shelf-head' }, [el('h3', {}, [title]), el('p', {}, [blurb])]),
+      el('div', { class: 'results-grid' }, items.map((item, i) => buildCard(item, startIndex + i))),
+    ]);
   }
 
   function draw(results: ScoredItem[], note: string | null = null) {
@@ -368,7 +484,7 @@ export function renderResults(root: HTMLElement): () => void {
     aiBtn.addEventListener('click', () => toggleLocalAi(aiBtn, results));
 
     const differentBtn = el('button', { class: 'btn btn-ghost toolbar-btn' });
-    differentBtn.innerHTML = iconLabel(ICON.shuffle, 'Different picks');
+    differentBtn.innerHTML = iconLabel(ICON.shuffle, 'Give me another');
     differentBtn.addEventListener('click', () => onDifferentPicks(differentBtn));
 
     const modeToggle = el('div', { class: 'mode-toggle', role: 'tablist', 'aria-label': 'Results mode' }, [
@@ -396,14 +512,15 @@ export function renderResults(root: HTMLElement): () => void {
 
     const ratedCount = resultRatings.size;
     const header = el('div', { class: 'results-header' }, [
+      el('p', { class: 'eyebrow' }, ['your picks']),
       el('h2', {}, ['Your matches']),
       el('p', { class: 'results-subline' }, [
         mode === 'precise'
           ? `${results.length} tightly-matched titles (${PRECISE_MIN_MATCH}%+ match).`
-          : `${results.length} titles, ranked and scored against your answers.`,
-        ratedCount > 0 ? ` You've rated ${ratedCount} result${ratedCount === 1 ? '' : 's'} — picks keep adjusting.` : '',
+          : `${results.length} titles, scored against your answers.`,
+        ratedCount > 0 ? ` You've rated ${ratedCount} result${ratedCount === 1 ? '' : 's'} \u2014 picks keep adjusting.` : '',
         ' ',
-        el('span', { class: 'curating-indicator' }, ['Curating your picks…']),
+        el('span', { class: 'curating-indicator', role: 'status' }, ['Updating your picks…']),
       ]),
       el('div', { class: 'results-toolbar' }, [
         modeToggle,
@@ -415,8 +532,7 @@ export function renderResults(root: HTMLElement): () => void {
       ]),
       // A note from ensureBatch() — shown whenever it had to compromise
       // to avoid a dead end (loosened the Precise floor, allowed repeats,
-      // etc.) instead of silently doing so. stagger-in gives it the same
-      // gentle entrance as the cards so it doesn't just pop in.
+      // etc.) instead of silently doing so.
       ...(note
         ? [(() => {
             const p = el('p', { class: 'results-note stagger-in' });
@@ -426,31 +542,37 @@ export function renderResults(root: HTMLElement): () => void {
         : []),
     ]);
 
-    const grid =
-      results.length > 0
-        ? el('div', { class: 'results-grid' }, results.map((item, i) => buildCard(item, i)))
-        : el('div', { class: 'state-message state-message-inline stagger-in' }, [
-            el('h3', {}, ['Nothing new left for this exact combination']),
-            el('p', {}, [
-              'You\u2019ve rated your way through everything the live pool had. Try a fresh batch, or loosen the era, language, or mode filter for more variety.',
-            ]),
-            el('div', { class: 'state-message-actions' }, [
-              (() => {
-                const b = el('button', { class: 'btn btn-primary', onclick: () => onDifferentPicks(differentBtn) });
-                b.innerHTML = iconLabel(ICON.shuffle, 'Try different picks');
-                return b;
-              })(),
-              (() => {
-                const b = el('button', { class: 'btn btn-ghost', onclick: () => store.setScreen('quiz') });
-                b.innerHTML = iconLabel(ICON.chevronLeft, 'Adjust answers');
-                return b;
-              })(),
-            ]),
-          ]);
+    const body = el('div', { class: 'results-body' });
+    if (results.length === 0) {
+      body.appendChild(
+        el('div', { class: 'state-message state-message-inline stagger-in' }, [
+          el('h3', {}, ['Nothing new left for this exact combination']),
+          el('p', {}, ['You\u2019ve been through everything the live pool had. Try another batch, or loosen the era, language or mode.']),
+          el('div', { class: 'state-message-actions' }, [
+            el('button', { class: 'btn btn-primary', onclick: () => onDifferentPicks(differentBtn) }, ['Give me another']),
+            el('button', { class: 'btn btn-ghost', onclick: () => store.setScreen('quiz') }, ['← Change answers']),
+          ]),
+        ])
+      );
+    } else {
+      const { featured, strongest, gems, stretch } = groupResults(results);
+      if (featured) body.appendChild(buildFeatured(featured));
+      let idx = 1;
+      const shelves: [string, string, ScoredItem[]][] = [
+        ['Strong matches', 'Closest to what you told us.', strongest],
+        ['Hidden gems', 'Well-rated, less-obvious picks that still fit.', gems],
+        ['Worth a stretch', 'A little outside your usual \u2014 close enough to be interesting.', stretch],
+      ];
+      for (const [title, blurb, items] of shelves) {
+        const shelf = buildShelf(title, blurb, items, idx);
+        idx += items.length;
+        if (shelf) body.appendChild(shelf);
+      }
+    }
 
-    mount(screen, el('div', {}, [header, grid]));
+    mount(screen, el('div', {}, [header, body]));
 
-    if (getLlmStatus() === 'ready') void refreshReasons(results, grid);
+    if (getLlmStatus() === 'ready') void refreshReasons(results);
   }
 
   function llmButtonLabel(): string {
@@ -470,8 +592,7 @@ export function renderResults(root: HTMLElement): () => void {
         btn.textContent = `Loading on-device model… ${pct}%`;
       });
       btn.textContent = llmButtonLabel();
-      const grid = screen.querySelector<HTMLElement>('.results-grid');
-      if (grid) await refreshReasons(results, grid);
+      await refreshReasons(results);
     } catch {
       btn.textContent = llmButtonLabel();
       btn.title = getLlmStatusDetail();
@@ -480,14 +601,17 @@ export function renderResults(root: HTMLElement): () => void {
     }
   }
 
-  async function refreshReasons(results: ScoredItem[], grid: HTMLElement) {
+  /** Swaps in on-device AI sentences, matched to cards by item id (the
+   * featured pick and themed shelves don't follow raw result order). */
+  async function refreshReasons(results: ScoredItem[]) {
     const summary = summarizeQuiz(store.getState());
-    const cards = grid.querySelectorAll<HTMLElement>('.result-reasons');
     await Promise.all(
-      results.slice(0, AI_REASON_LIMIT).map(async (item, i) => {
+      results.slice(0, AI_REASON_LIMIT).map(async (item) => {
         const sentence = await explainPick(item, summary);
-        const listEl = cards[i];
-        if (listEl) listEl.replaceChildren(el('li', { class: 'ai-reason' }, [sentence]));
+        if (cancelled) return;
+        screen
+          .querySelectorAll<HTMLElement>(`[data-reasons="${item.id}"]`)
+          .forEach((listEl) => listEl.replaceChildren(el('li', { class: 'ai-reason' }, [sentence])));
       })
     );
   }
@@ -530,127 +654,157 @@ export function renderResults(root: HTMLElement): () => void {
     return el('div', { class: 'star-row star-row-sm', 'data-item': itemId }, stars);
   }
 
+  /** A real <button> stretched over the poster: keyboard-focusable, with
+   * a visible focus ring, instead of a click handler on a <div>. */
+  function buildOpenButton(item: ScoredItem): HTMLElement {
+    return el('button', {
+      class: 'result-open',
+      type: 'button',
+      'aria-label': `Details for ${item.title} (${item.year})`,
+      onclick: (e: Event) => openDetailModal(item, e.currentTarget as HTMLElement),
+    });
+  }
+
+  function previewRatings(item: ScoredItem): { svg: string; label: string }[] {
+    const parts: { svg: string; label: string }[] = [{ svg: ICON.starFilled, label: item.voteAverage.toFixed(1) }];
+    if (item.externalRatings?.rottenTomatoes !== undefined) parts.push({ svg: ICON.tomato, label: `${item.externalRatings.rottenTomatoes}%` });
+    if (item.externalRatings?.imdbRating !== undefined) parts.push({ svg: ICON.starFilled, label: `IMDb ${item.externalRatings.imdbRating}` });
+    return parts;
+  }
+
   function buildCard(item: ScoredItem, index: number): HTMLElement {
     const poster = buildPosterImage({
       src: posterUrl(item.posterPath, 'md'),
       alt: `${item.title} poster`,
       fallbackText: item.title.slice(0, 1),
     });
-    const ratingBadge = item.externalRatings?.rottenTomatoes !== undefined
-      ? (() => {
-          const b = el('span', { class: 'badge badge-rt' });
-          b.innerHTML = iconLabel(ICON.tomato, `${item.externalRatings!.rottenTomatoes}%`, 12);
-          return b;
-        })()
-      : null;
+    const chips = buildReasonChips(item);
 
-    const previewRatingParts: { svg: string; label: string }[] = [{ svg: ICON.starFilled, label: item.voteAverage.toFixed(1) }];
-    if (item.externalRatings?.rottenTomatoes !== undefined) {
-      previewRatingParts.push({ svg: ICON.tomato, label: `${item.externalRatings.rottenTomatoes}%` });
-    }
-    if (item.externalRatings?.imdbRating !== undefined) {
-      previewRatingParts.push({ svg: ICON.starFilled, label: `IMDb ${item.externalRatings.imdbRating}` });
-    }
-
-    const card = el(
-      'article',
-      {
-        class: 'result-card stagger-in',
-        style: `--stagger: ${Math.min(index, 20)}`,
-      },
-      [
-        el('div', { class: 'result-poster', onclick: () => openDetailModal(item) }, [
-          poster,
-          buildWatchlistButton(item),
-          // The hover-preview flap — pure CSS opacity/transform on hover, no
-          // extra fetch needed since every field here is already on the
-          // ScoredItem. Click still opens the full modal for cast/trailer/
-          // rate — this is the quick-glance version, not a replacement.
-          el('div', { class: 'result-hover-preview' }, [
-            el('p', { class: 'hover-preview-overview' }, [
-              item.overview ? truncate(item.overview, 130) : 'No synopsis available.',
-            ]),
-            (() => {
-              const p = el('p', { class: 'hover-preview-ratings' });
-              p.innerHTML = ratingsRow(previewRatingParts);
-              return p;
-            })(),
-            (() => {
-              const span = el('span', { class: 'hover-preview-cta' });
-              span.innerHTML = iconLabel(ICON.arrowUpRight, 'Click for full details', 12);
-              return span;
-            })(),
+    return el('article', { class: 'result-card stagger-in', style: `--stagger: ${Math.min(index, 20)}` }, [
+      el('div', { class: 'result-poster' }, [
+        poster,
+        buildOpenButton(item),
+        buildWatchlistButton(item),
+        // Hover quick-look: synopsis + ratings, no extra fetch. Pure CSS,
+        // and hidden on touch (a tap opens the full sheet instead).
+        el('div', { class: 'result-hover-preview', 'aria-hidden': 'true' }, [
+          el('p', { class: 'hover-preview-overview' }, [item.overview ? truncate(item.overview, 130) : 'No synopsis available.']),
+          (() => {
+            const p = el('p', { class: 'hover-preview-ratings' });
+            p.innerHTML = ratingsRow(previewRatings(item));
+            return p;
+          })(),
+        ]),
+        el('span', { class: 'poster-match-badge', 'data-fit': item.fit }, [`${item.matchPct}%`]),
+      ]),
+      el('div', { class: 'result-body' }, [
+        el('h3', { class: 'result-title' }, [
+          el('button', { class: 'result-title-btn', type: 'button', onclick: (e: Event) => openDetailModal(item, e.currentTarget as HTMLElement) }, [
+            `${item.title} (${item.year})`,
           ]),
         ]),
-        el('div', { class: 'result-body' }, [
-          el('div', { class: 'result-match' }, [`${item.matchPct}% match`]),
-          el('h3', { class: 'result-title', onclick: () => openDetailModal(item) }, [`${item.title} (${item.year})`]),
-          ...(ratingBadge ? [ratingBadge] : []),
-          el(
-            'ul',
-            { class: 'result-reasons' },
-            item.reasons.map((r) => el('li', {}, [r]))
-          ),
-          buildStarRow(item.id, resultRatings.get(item.id) ?? historyRatingFor(item.id), (v) => onRateResult(item, v)),
-        ]),
-      ]
-    );
-
-    return card;
+        buildMatchMeter(item),
+        ...(chips ? [chips] : []),
+        el('ul', { class: 'result-reasons', 'data-reasons': item.id }, item.reasons.map((r) => el('li', {}, [r]))),
+        buildStarRow(item.id, resultRatings.get(item.id) ?? historyRatingFor(item.id), (v) => onRateResult(item, v)),
+      ]),
+    ]);
   }
 
-  // ── Movie info modal — "check the info before watching" ─────────────
-  function openDetailModal(item: ScoredItem) {
+  /** The #1 pick gets a wide backdrop treatment so the list has a visual
+   * hierarchy and an obvious "start here". */
+  function buildFeatured(item: ScoredItem): HTMLElement {
+    const backdrop = backdropUrl(item.backdropPath);
+    const chips = buildReasonChips(item);
+    const openBtn = el('button', { class: 'btn btn-primary', type: 'button' }, ['See why it fits']);
+    openBtn.addEventListener('click', () => openDetailModal(item, openBtn));
+    return el('article', { class: 'featured stagger-in', style: backdrop ? `--feat-bg: url('${backdrop}')` : '' }, [
+      el('div', { class: 'featured-poster' }, [buildPosterImage({ src: posterUrl(item.posterPath, 'md'), alt: `${item.title} poster`, fallbackText: item.title.slice(0, 1), eager: true })]),
+      el('div', { class: 'featured-info' }, [
+        el('p', { class: 'eyebrow' }, ['your top pick']),
+        el('h3', { class: 'featured-title' }, [`${item.title} (${item.year})`]),
+        buildMatchMeter(item, 'lg'),
+        ...(chips ? [chips] : []),
+        el('p', { class: 'featured-overview' }, [item.overview ? truncate(item.overview, 220) : 'No synopsis available.']),
+        el('ul', { class: 'result-reasons', 'data-reasons': item.id }, item.reasons.map((r) => el('li', {}, [r]))),
+        el('div', { class: 'featured-actions' }, [openBtn, buildWatchlistInline(item)]),
+      ]),
+    ]);
+  }
+
+  function buildWatchlistInline(item: ScoredItem): HTMLElement {
+    const label = () => (isInWatchlist(item.id) ? '\u2713 In watchlist' : '+ Watchlist');
+    const btn = el('button', { class: 'btn btn-ghost', type: 'button' }, [label()]);
+    btn.addEventListener('click', () => {
+      toggleWatchlist(item);
+      btn.textContent = label();
+    });
+    return btn;
+  }
+
+  // ── Detail sheet — "check the info before watching" ─────────────────
+  function openDetailModal(item: ScoredItem, trigger?: HTMLElement) {
     const backdropSrc = backdropUrl(item.backdropPath) ?? posterUrl(item.posterPath, 'xl');
 
     const ratingParts: { svg: string; label: string }[] = [{ svg: ICON.starFilled, label: `${item.voteAverage.toFixed(1)}/10 TMDB (${item.voteCount.toLocaleString()})` }];
-    if (item.externalRatings?.rottenTomatoes !== undefined) {
-      ratingParts.push({ svg: ICON.tomato, label: `${item.externalRatings.rottenTomatoes}%` });
-    }
-    if (item.externalRatings?.metacritic !== undefined) {
-      ratingParts.push({ svg: ICON.metacritic, label: `${item.externalRatings.metacritic}` });
-    }
-    if (item.externalRatings?.imdbRating !== undefined) {
-      ratingParts.push({ svg: ICON.starFilled, label: `IMDb ${item.externalRatings.imdbRating}` });
-    }
+    if (item.externalRatings?.rottenTomatoes !== undefined) ratingParts.push({ svg: ICON.tomato, label: `${item.externalRatings.rottenTomatoes}%` });
+    if (item.externalRatings?.metacritic !== undefined) ratingParts.push({ svg: ICON.metacritic, label: `${item.externalRatings.metacritic}` });
+    if (item.externalRatings?.imdbRating !== undefined) ratingParts.push({ svg: ICON.starFilled, label: `IMDb ${item.externalRatings.imdbRating}` });
 
-    const overlay = el('div', { class: 'modal-overlay', role: 'dialog', 'aria-modal': 'true' });
-    const closeBtn = el('button', { class: 'modal-close', 'aria-label': 'Close' });
+    const titleId = `modal-title-${item.id}`;
+    const overlay = el('div', { class: 'modal-overlay' });
+    const closeBtn = el('button', { class: 'modal-close', type: 'button', 'aria-label': 'Close details' });
     closeBtn.innerHTML = ICON.close;
 
     const hero = el('div', { class: 'modal-hero' }, [
-      buildPosterImage({ src: backdropSrc, alt: `${item.title} backdrop`, fallbackText: item.title.slice(0, 1), eager: true }),
+      buildPosterImage({ src: backdropSrc, alt: '', fallbackText: item.title.slice(0, 1), eager: true }),
     ]);
 
     const providersHost = el('div', { class: 'modal-providers' });
     mountProviders(providersHost, item.id, item.tmdbType);
 
-    const modal = el('div', { class: 'modal-card' }, [
+    // Cast & crew — click a name to jump to that person on the search screen.
+    const creditsHost = el('div', { class: 'modal-credits' });
+    let modalClosed = false;
+    void getCredits(item.id, item.tmdbType)
+      .then((credits) => {
+        if (modalClosed) return;
+        const block = buildCreditsBlock(credits, (personId) => {
+          close();
+          store.openInSearch({ kind: 'person', id: personId });
+        });
+        if (block) creditsHost.replaceChildren(block);
+      })
+      .catch(() => {});
+
+    const chips = buildReasonChips(item);
+    const modal = el('div', { class: 'modal-card', role: 'dialog', 'aria-modal': 'true', 'aria-labelledby': titleId }, [
       closeBtn,
       hero,
       el('div', { class: 'modal-body' }, [
-        el('div', { class: 'result-match modal-match' }, [`${item.matchPct}% match`]),
-        el('h2', {}, [`${item.title} (${item.year})`]),
-        el('p', { class: 'modal-meta' }, [
-          [item.type === 'movie' ? 'Movie' : 'Series', ...item.genres, ...item.vibe].join(' · '),
-        ]),
+        buildMatchMeter(item, 'lg'),
+        el('h2', { id: titleId }, [`${item.title} (${item.year})`]),
+        el('p', { class: 'modal-meta' }, [[item.type === 'movie' ? 'Movie' : 'Series', ...item.genres, ...item.vibe].join(' · ')]),
+        ...(chips ? [chips] : []),
         (() => {
           const p = el('p', { class: 'modal-ratings' });
           p.innerHTML = ratingsRow(ratingParts, 13);
           return p;
         })(),
         el('p', { class: 'modal-overview' }, [item.overview || 'No synopsis available.']),
+        el('div', { class: 'why-box' }, [
+          el('h4', {}, ['Why this recommendation?']),
+          el('ul', {}, item.reasons.map((r) => el('li', {}, [r]))),
+        ]),
+        creditsHost,
         providersHost,
         el('div', { class: 'modal-actions' }, [
-          el(
-            'a',
-            { class: 'btn btn-ghost', href: tmdbDetailsUrl(item.id, item.tmdbType), target: '_blank', rel: 'noopener' },
-            ['View trailer & full details ↗']
-          ),
+          el('a', { class: 'btn btn-ghost', href: tmdbDetailsUrl(item.id, item.tmdbType), target: '_blank', rel: 'noopener' }, ['View trailer & full details ↗']),
           el(
             'button',
             {
               class: `btn btn-ghost modal-watchlist-btn${isInWatchlist(item.id) ? ' active' : ''}`,
+              type: 'button',
               onclick: (e: Event) => {
                 const btn = e.currentTarget as HTMLButtonElement;
                 const nowSaved = toggleWatchlist(item);
@@ -673,21 +827,22 @@ export function renderResults(root: HTMLElement): () => void {
     document.body.appendChild(overlay);
     document.body.style.overflow = 'hidden';
 
+    const release = trapFocus(modal, { initialFocus: closeBtn, onEscape: close });
+    void trigger; // focus restore is handled by trapFocus's release()
+
     function close() {
+      if (modalClosed) return;
+      modalClosed = true;
       providersHost.dispatchEvent(new Event('providers-unmount'));
       overlay.remove();
       document.body.style.overflow = '';
-      document.removeEventListener('keydown', onKey);
-    }
-    function onKey(e: KeyboardEvent) {
-      if (e.key === 'Escape') close();
+      release();
     }
 
     overlay.addEventListener('click', (e) => {
       if (e.target === overlay) close();
     });
     closeBtn.addEventListener('click', close);
-    document.addEventListener('keydown', onKey);
   }
 
   function restart() {

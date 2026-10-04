@@ -17,7 +17,8 @@ import { enableLocalAi, explainPick, getLlmStatus, getLlmStatusDetail } from '..
 import { isInWatchlist, recordRating, toggleWatchlist } from '../lib/profile';
 import { mountProviders } from '../lib/providers-ui';
 import { store } from '../lib/store';
-import { backdropUrl, getSimilarTitles, posterUrl, searchMulti, tmdbDetailsUrl } from '../lib/tmdb';
+import { backdropUrl, getCredits, getPersonBestWork, getPersonDetails, getSimilarTitles, personImageUrl, posterUrl, searchMulti, searchPeople, tmdbDetailsUrl, TmdbUnavailableError } from '../lib/tmdb';
+import { buildCreditsBlock } from '../lib/credits-ui';
 import type { CatalogItem, RatingValue, ScoredItem } from '../lib/types';
 
 const SEARCH_DEBOUNCE_MS = 350;
@@ -36,13 +37,14 @@ function toSimilarItem(item: CatalogItem, source: CatalogItem): ScoredItem {
   if (item.voteAverage >= 7) reasons.push(`Well-rated: ${item.voteAverage.toFixed(1)}/10 on TMDB`);
   if (reasons.length === 0) reasons.push(`From TMDB's own recommendations for ${source.title}`);
   const overlapPct = source.genres.length > 0 ? Math.round((shared.length / source.genres.length) * 100) : 0;
-  return { ...item, matchPct: overlapPct, reasons };
+  return { ...item, matchPct: overlapPct, rankPct: overlapPct, score: overlapPct, fit: 'good', reasons, matchedTags: shared.slice(0, 4) };
 }
 
 export function renderSearch(root: HTMLElement): () => void {
   let cancelled = false;
   let debounceTimer: number | null = null;
   let searchToken = 0;
+  let searchAbort: AbortController | null = null;
   let selected: CatalogItem | null = null;
   let similarItems: ScoredItem[] = [];
   const resultRatings = new Map<number, RatingValue>();
@@ -85,50 +87,130 @@ export function renderSearch(root: HTMLElement): () => void {
     ]);
 
     mount(screen, el('div', {}, [header, detailHost]));
-    input.focus();
+    // Don't pop the on-screen keyboard over the page on touch devices.
+    if (!window.matchMedia('(hover: none)').matches) input.focus();
+
+    // A cast-member click elsewhere in the app lands here already pointed
+    // at that person/title instead of an empty search box.
+    const pending = store.getState().pendingSearchTarget;
+    if (pending) {
+      store.clearPendingSearchTarget();
+      if (pending.kind === 'person') void selectPerson(pending.id, detailHost);
+    }
 
     async function runSearch(query: string) {
       const token = ++searchToken;
+      searchAbort?.abort();
       const trimmed = query.trim();
       if (trimmed.length < 2) {
         resultsList.replaceChildren();
         return;
       }
-      resultsList.replaceChildren(el('p', { class: 'search-loading' }, ['Searching…']));
+      const ctrl = new AbortController();
+      searchAbort = ctrl;
+      resultsList.replaceChildren(el('p', { class: 'search-loading', role: 'status' }, ['Searching…']));
       try {
-        const matches = await searchMulti(trimmed);
+        const [titles, people] = await Promise.all([
+          searchMulti(trimmed, ctrl.signal),
+          searchPeople(trimmed, ctrl.signal).catch((err) => {
+            if (ctrl.signal.aborted) throw err;
+            return [];
+          }),
+        ]);
         if (cancelled || token !== searchToken) return;
-        if (matches.length === 0) {
+        const personRows = people.slice(0, 3).map((p) =>
+          el(
+            'button',
+            {
+              class: 'search-result-row',
+              type: 'button',
+              onclick: () => {
+                resultsList.replaceChildren();
+                input.value = '';
+                void selectPerson(p.id, detailHost);
+              },
+            },
+            [
+              buildPosterImage({ src: personImageUrl(p.profilePath), alt: '', fallbackText: p.name.slice(0, 1) }),
+              el('span', { class: 'search-result-meta' }, [
+                el('span', { class: 'search-result-title' }, [p.name]),
+                el('span', { class: 'search-result-type' }, [p.knownForDepartment]),
+              ]),
+            ]
+          )
+        );
+        const titleRows = titles.slice(0, 8).map((m) =>
+          el(
+            'button',
+            {
+              class: 'search-result-row',
+              type: 'button',
+              onclick: () => {
+                resultsList.replaceChildren();
+                input.value = '';
+                void selectTitle(m, detailHost);
+              },
+            },
+            [
+              buildPosterImage({ src: posterUrl(m.posterPath, 'xs'), alt: '', fallbackText: m.title.slice(0, 1) }),
+              el('span', { class: 'search-result-meta' }, [
+                el('span', { class: 'search-result-title' }, [`${m.title} (${m.year})`]),
+                el('span', { class: 'search-result-type' }, [m.type === 'series' ? 'TV series' : 'Movie']),
+              ]),
+            ]
+          )
+        );
+        if (personRows.length + titleRows.length === 0) {
           resultsList.replaceChildren(el('p', { class: 'search-loading' }, ['No matches — try a different spelling.']));
           return;
         }
-        resultsList.replaceChildren(
-          ...matches.slice(0, 8).map((m) =>
-            el(
-              'button',
-              {
-                class: 'search-result-row',
-                onclick: () => {
-                  resultsList.replaceChildren();
-                  input.value = '';
-                  void selectTitle(m, detailHost);
-                },
-              },
-              [
-                buildPosterImage({ src: posterUrl(m.posterPath, 'xs'), alt: '', fallbackText: m.title.slice(0, 1) }),
-                el('span', { class: 'search-result-meta' }, [
-                  el('span', { class: 'search-result-title' }, [`${m.title} (${m.year})`]),
-                  el('span', { class: 'search-result-type' }, [m.type === 'series' ? 'TV series' : 'Movie']),
-                ]),
-              ]
-            )
-          )
-        );
-      } catch {
-        if (cancelled || token !== searchToken) return;
-        resultsList.replaceChildren(el('p', { class: 'search-loading' }, ['Search failed — check your connection and try again.']));
+        resultsList.replaceChildren(...titleRows, ...personRows);
+      } catch (err) {
+        if ((err instanceof DOMException && err.name === 'AbortError') || cancelled || token !== searchToken) return;
+        resultsList.replaceChildren(el('p', { class: 'search-loading', role: 'alert' }, ['Search failed — check your connection and try again.']));
       }
     }
+  }
+
+  async function selectPerson(id: number, host: HTMLElement) {
+    selected = null;
+    host.replaceChildren(el('p', { class: 'search-loading', role: 'status' }, ['Loading…']));
+    try {
+      const [person, work] = await Promise.all([getPersonDetails(id), getPersonBestWork(id)]);
+      if (cancelled) return;
+      const items = work.slice(0, 12).map((w) => toSimilarItem(w, { ...w, genres: [] }));
+      const photo = personImageUrl(person.profilePath);
+      const hero = el('div', { class: 'search-hero' }, [
+        el('div', { class: 'search-hero-inner' }, [
+          buildPosterImage({ src: photo, alt: person.name, fallbackText: person.name.slice(0, 1) }),
+          el('div', { class: 'search-hero-info' }, [
+            el('h3', {}, [person.name]),
+            el('p', { class: 'search-result-type' }, [[person.knownForDepartment, person.birthday ? `born ${person.birthday}` : '', person.placeOfBirth ?? ''].filter(Boolean).join(' · ')]),
+            el('p', { class: 'search-hero-overview' }, [person.biography ? truncatePerson(person.biography) : 'No biography available.']),
+          ]),
+        ]),
+      ]);
+      const grid = el('div', { class: 'results-grid' }, items.map((item, i) => buildCard({ ...item, reasons: ['Best-known work'], matchedTags: [] }, i)));
+      host.replaceChildren(
+        hero,
+        el('div', { class: 'search-similar-section' }, [
+          el('div', { class: 'search-similar-header' }, [el('h3', {}, [`Best known for`])]),
+          items.length > 0 ? grid : el('p', { class: 'search-loading' }, ['No credits found.']),
+        ])
+      );
+    } catch {
+      if (cancelled) return;
+      host.replaceChildren(
+        el('div', { class: 'state-message', role: 'alert' }, [
+          el('h3', {}, ['Couldn\u2019t load this person']),
+          el('button', { class: 'btn btn-primary', type: 'button', onclick: () => void selectPerson(id, host) }, ['Retry']),
+        ])
+      );
+    }
+  }
+
+  function truncatePerson(text: string): string {
+    return text.length <= 600 ? text : `${text.slice(0, text.lastIndexOf(' ', 600))}\u2026`;
   }
 
   async function selectTitle(item: CatalogItem, host: HTMLElement) {
@@ -136,14 +218,20 @@ export function renderSearch(root: HTMLElement): () => void {
     resultRatings.clear();
     host.replaceChildren(el('p', { class: 'search-loading' }, [`Finding titles similar to ${item.title}…`]));
 
-    const similar = await getSimilarTitles(item.id, item.tmdbType).catch(() => []);
+    let similar: CatalogItem[] = [];
+    let failed = false;
+    try {
+      similar = await getSimilarTitles(item.id, item.tmdbType);
+    } catch (err) {
+      failed = err instanceof TmdbUnavailableError;
+    }
     if (cancelled || selected !== item) return;
 
     similarItems = similar.slice(0, 24).map((s) => toSimilarItem(s, item));
-    drawDetail(item, similarItems, host);
+    drawDetail(item, similarItems, host, failed);
   }
 
-  function drawDetail(source: CatalogItem, results: ScoredItem[], host: HTMLElement) {
+  function drawDetail(source: CatalogItem, results: ScoredItem[], host: HTMLElement, failed = false) {
     const backdrop = backdropUrl(source.backdropPath);
 
     const hero = el(
@@ -160,6 +248,17 @@ export function renderSearch(root: HTMLElement): () => void {
               { class: 'btn btn-ghost', href: tmdbDetailsUrl(source.id, source.tmdbType), target: '_blank', rel: 'noopener' },
               ['View on TMDB ↗']
             ),
+            (() => {
+              const creditsHost = el('div', { class: 'search-hero-credits' });
+              void getCredits(source.id, source.tmdbType)
+                .then((credits) => {
+                  if (cancelled) return;
+                  const block = buildCreditsBlock(credits, (personId) => void selectPerson(personId, host));
+                  if (block) creditsHost.replaceChildren(block);
+                })
+                .catch(() => {});
+              return creditsHost;
+            })(),
             (() => {
               const providersHost = el('div', { class: 'search-hero-providers' });
               mountProviders(providersHost, source.id, source.tmdbType);
@@ -186,7 +285,12 @@ export function renderSearch(root: HTMLElement): () => void {
       ]),
       results.length > 0
         ? grid
-        : el('p', { class: 'search-loading' }, ['TMDB doesn\u2019t have similar-title data for this one yet.']),
+        : failed
+          ? el('div', { class: 'state-message state-message-inline', role: 'alert' }, [
+              el('h3', {}, ['We couldn\u2019t reach the movie database']),
+              el('button', { class: 'btn btn-primary', type: 'button', onclick: () => void selectTitle(source, host) }, ['Retry']),
+            ])
+          : el('p', { class: 'search-loading' }, ['TMDB doesn\u2019t have similar-title data for this one yet.']),
     ]);
 
     host.replaceChildren(hero, section);
@@ -259,15 +363,18 @@ export function renderSearch(root: HTMLElement): () => void {
     const card = el('article', { class: 'result-card stagger-in', style: `--stagger: ${Math.min(index, 20)}` }, [
       el(
         'div',
-        {
-          class: 'result-poster',
-          onclick: () => {
-            const host = screen.querySelector<HTMLElement>('.search-detail-host');
-            if (host) void selectTitle(item, host);
-          },
-        },
+        { class: 'result-poster' },
         [
           poster,
+          el('button', {
+            class: 'result-open',
+            type: 'button',
+            'aria-label': `See what's similar to ${item.title}`,
+            onclick: () => {
+              const host = screen.querySelector<HTMLElement>('.search-detail-host');
+              if (host) void selectTitle(item, host);
+            },
+          }),
           buildWatchlistButton(item),
           el('div', { class: 'result-hover-preview' }, [
             el('p', { class: 'hover-preview-overview' }, [item.overview || 'No synopsis available.']),
@@ -287,8 +394,21 @@ export function renderSearch(root: HTMLElement): () => void {
         ]
       ),
       el('div', { class: 'result-body' }, [
-        el('div', { class: 'result-match search-overlap' }, [`${item.matchPct}% genre overlap`]),
-        el('h3', { class: 'result-title' }, [`${item.title} (${item.year})`]),
+        ...(item.matchPct > 0 ? [el('div', { class: 'result-match search-overlap' }, [`${item.matchPct}% genre overlap`])] : []),
+        el('h3', { class: 'result-title' }, [
+          el(
+            'button',
+            {
+              class: 'result-title-btn',
+              type: 'button',
+              onclick: () => {
+                const host = screen.querySelector<HTMLElement>('.search-detail-host');
+                if (host) void selectTitle(item, host);
+              },
+            },
+            [`${item.title} (${item.year})`]
+          ),
+        ]),
         el(
           'ul',
           { class: 'result-reasons' },
@@ -327,5 +447,6 @@ export function renderSearch(root: HTMLElement): () => void {
   return () => {
     cancelled = true;
     if (debounceTimer !== null) window.clearTimeout(debounceTimer);
+    searchAbort?.abort();
   };
 }

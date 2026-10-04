@@ -1,9 +1,10 @@
 import { buildRatingPool } from '../lib/rating-pool';
 import { buildPosterImage, el, mount } from '../lib/dom';
 import { parseLetterboxdCsv } from '../lib/letterboxd';
-import { recordSeedRating } from '../lib/profile';
+import { recordImportedRatings, recordSeedRating } from '../lib/profile';
 import { store } from '../lib/store';
-import { posterUrl, searchTitle } from '../lib/tmdb';
+import { findCatalogItem, isTmdbConfigured, posterUrl, searchTitle } from '../lib/tmdb';
+import type { CatalogItem } from '../lib/types';
 import type { RatingSeed, RatingValue } from '../lib/types';
 
 const MIN_RATINGS_TO_CONTINUE = 3;
@@ -12,6 +13,7 @@ export function renderRating(root: HTMLElement): () => void {
   let cancelled = false;
   const cards = new Map<number, HTMLElement>();
   let seeds: RatingSeed[] = store.getState().ratingSeeds;
+  let libraryCount = 0;
 
   const grid = el('div', { class: 'rating-grid' });
   const continueBtn = el(
@@ -21,6 +23,7 @@ export function renderRating(root: HTMLElement): () => void {
   );
   const countLabel = el('span', { class: 'rating-count' }, ['0 rated']);
 
+  const importStatus = el('p', { class: 'import-status', role: 'status', 'aria-live': 'polite' });
   const importInput = el('input', {
     type: 'file',
     accept: '.csv',
@@ -38,9 +41,10 @@ export function renderRating(root: HTMLElement): () => void {
       el('h2', {}, ['Rate a few you know']),
       el('p', {}, [subtitle]),
       el('button', { class: 'btn btn-ghost', onclick: () => importInput.click() }, [
-        'Import from Letterboxd',
+        'Import your Letterboxd history',
       ]),
       importInput,
+      importStatus,
     ]),
     grid,
     el('div', { class: 'rating-footer' }, [countLabel, continueBtn]),
@@ -81,8 +85,8 @@ export function renderRating(root: HTMLElement): () => void {
       // The genre-weighted picks already carry a poster from the live
       // TMDB query; the small static fallback list doesn't, so resolve
       // those lazily. The card works fine either way in the meantime.
-      if (!seed.posterPath) {
-        searchTitle(seed.title, seed.tmdbType)
+      if (!seed.posterPath && isTmdbConfigured) {
+        searchTitle(seed.title, seed.tmdbType, seed.year)
           .then((res) => {
             if (!cancelled && res?.posterPath) setCardPoster(card, posterUrl(res.posterPath, 'md'));
           })
@@ -148,37 +152,88 @@ export function renderRating(root: HTMLElement): () => void {
   }
 
   function syncFromStore() {
-    const count = Object.keys(store.getState().ratings).length;
+    const count = Object.keys(store.getState().ratings).length + libraryCount;
     countLabel.textContent = `${count} rated`;
     continueBtn.toggleAttribute('disabled', count < MIN_RATINGS_TO_CONTINUE);
   }
+
+  const IMPORT_CAP = 400; // most recent rows; keeps TMDB lookups bounded
+  const IMPORT_CONCURRENCY = 5;
 
   function onImportFile(e: Event) {
     const input = e.target as HTMLInputElement;
     const file = input.files?.[0];
     if (!file) return;
+    input.value = '';
 
-    file.text().then((text) => {
-      const rows = parseLetterboxdCsv(text);
-      // Match imported rows against our seed list by title; anything not
-      // in the seed list still contributes to taste even without a visible
-      // card, via a synthetic negative id namespace to avoid collisions.
+    void file.text().then(async (text) => {
+      const rows = parseLetterboxdCsv(text).slice(-IMPORT_CAP);
+      if (rows.length === 0) {
+        importStatus.textContent = 'That file didn\u2019t look like a Letterboxd ratings.csv \u2014 export it from Settings \u2192 Data.';
+        return;
+      }
+
+      const matched: { item: CatalogItem; stars: number }[] = [];
+      let unmatched = 0;
+      let done = 0;
+
+      // Without TMDB we can only match against the cards on screen.
+      if (!isTmdbConfigured) {
+        const imported: Record<number, RatingValue> = {};
+        for (const row of rows) {
+          const seed = seeds.find((s) => s.title.toLowerCase() === row.title.toLowerCase() && (!row.year || s.year === row.year));
+          if (seed) imported[seed.id] = row.rating as RatingValue;
+          else unmatched++;
+        }
+        store.importRatings(imported);
+        paintImported(imported);
+        importStatus.textContent = `Matched ${Object.keys(imported).length} of ${rows.length}. Add a TMDB key to match the rest of your library.`;
+        syncFromStore();
+        return;
+      }
+
+      let next = 0;
+      const worker = async () => {
+        while (next < rows.length && !cancelled) {
+          const row = rows[next++]!;
+          try {
+            const item = await findCatalogItem(row.title, row.year);
+            if (item) matched.push({ item, stars: row.stars });
+            else unmatched++;
+          } catch {
+            unmatched++;
+          }
+          done++;
+          importStatus.textContent = `Matching your library\u2026 ${done} of ${rows.length}`;
+        }
+      };
+      await Promise.all(Array.from({ length: IMPORT_CONCURRENCY }, worker));
+      if (cancelled) return;
+
+      // Whole library, persisted and de-duplicated by TMDB id: all of it
+      // calibrates the engine, not only titles that happen to be on a card.
+      recordImportedRatings(matched);
+
+      // Titles that are also visible as seed cards light up their stars.
       const imported: Record<number, RatingValue> = {};
-      for (const row of rows) {
-        const seed = seeds.find((s) => s.title.toLowerCase() === row.title.toLowerCase());
-        if (seed) imported[seed.id] = row.rating as RatingValue;
+      for (const m of matched) {
+        if (seeds.some((s) => s.id === m.item.id)) imported[m.item.id] = Math.max(1, Math.min(5, Math.round(m.stars))) as RatingValue;
       }
       store.importRatings(imported);
-      for (const [idStr, value] of Object.entries(imported)) {
-        const id = Number(idStr);
-        const card = cards.get(id);
-        if (card) {
-          const starEls = card.querySelectorAll<HTMLButtonElement>('.star');
-          starEls.forEach((s, i) => s.classList.toggle('filled', i < value));
-        }
-      }
+      paintImported(imported);
+
+      // The library itself counts toward the "rate a few" requirement.
+      libraryCount = matched.length;
+      importStatus.textContent = `Imported ${rows.length} films \u00b7 matched ${matched.length} \u00b7 couldn\u2019t identify ${unmatched}.`;
       syncFromStore();
     });
+  }
+
+  function paintImported(imported: Record<number, RatingValue>) {
+    for (const [idStr, value] of Object.entries(imported)) {
+      const card = cards.get(Number(idStr));
+      card?.querySelectorAll<HTMLButtonElement>('.star').forEach((s, i) => s.classList.toggle('filled', i < value));
+    }
   }
 
   function onContinue() {
