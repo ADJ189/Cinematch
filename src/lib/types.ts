@@ -68,9 +68,23 @@ export interface ExternalRatings {
   imdbRating?: number; // 0-10
 }
 
+export type FitLevel = 'strong' | 'good' | 'stretch';
+
 export interface ScoredItem extends CatalogItem {
+  /** Calibrated absolute fit, 1-99. Independent of what else is in the
+   * current batch, so 90% means the same thing on every search. */
   matchPct: number;
+  /** Position inside the current batch, 0-100 (100 = top pick). Relative by
+   * design — use it for ordering/visual emphasis, never as a "quality %". */
+  rankPct: number;
+  /** Raw weighted score, kept so the UI can reason about it (e.g. picking
+   * hidden gems) without re-deriving anything. */
+  score: number;
+  fit: FitLevel;
   reasons: string[];
+  /** Genres/vibes of this title that the taste profile actually favors —
+   * rendered as "why it matched" chips. */
+  matchedTags: string[];
 }
 
 /** A small, well-known seed list used for the taste-calibration rating step. */

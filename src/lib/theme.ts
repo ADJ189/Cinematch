@@ -1,15 +1,21 @@
 // src/lib/theme.ts — light/dark mode, persisted, defaulting to system preference.
 
+import { safeGet, safeSet } from './storage';
+
 export type Theme = 'dark' | 'light';
 
 const STORAGE_KEY = 'cinematch-theme';
 
 function systemPrefersLight(): boolean {
-  return window.matchMedia('(prefers-color-scheme: light)').matches;
+  try {
+    return window.matchMedia('(prefers-color-scheme: light)').matches;
+  } catch {
+    return false;
+  }
 }
 
 export function getTheme(): Theme {
-  const stored = localStorage.getItem(STORAGE_KEY);
+  const stored = safeGet(STORAGE_KEY);
   if (stored === 'dark' || stored === 'light') return stored;
   return systemPrefersLight() ? 'light' : 'dark';
 }
@@ -22,7 +28,7 @@ export function applyTheme(theme: Theme): void {
 }
 
 export function setTheme(theme: Theme): void {
-  localStorage.setItem(STORAGE_KEY, theme);
+  safeSet(STORAGE_KEY, theme);
   applyTheme(theme);
 }
 
