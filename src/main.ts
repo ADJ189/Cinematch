@@ -80,6 +80,10 @@ const CHUNK_RELOAD_KEY = 'cinematch.chunk-reload';
 function loadLazyScreen(loader: () => Promise<Renderer>, token: number) {
   loader()
     .then((renderer) => {
+      // A chunk really loaded, so the one-shot reload guard can reset and a
+      // *future* stale deploy may self-heal again. Persistent failures never
+      // reach this line, so they can't loop.
+      safeSet(CHUNK_RELOAD_KEY, '0');
       if (token !== navToken) return;
       app.classList.remove('screen-loading');
       currentCleanup = renderer(app);
@@ -119,10 +123,6 @@ function loadLazyScreen(loader: () => Promise<Renderer>, token: number) {
       );
     });
 }
-
-// A clean boot clears the one-shot reload guard so a *future* deploy can
-// self-heal again.
-window.setTimeout(() => safeSet(CHUNK_RELOAD_KEY, '0'), 4000);
 
 dismissBootLoader();
 
