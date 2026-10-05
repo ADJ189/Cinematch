@@ -14,6 +14,7 @@ export function renderQuiz(root: HTMLElement): () => void {
   let direction: 'forward' | 'back' = 'forward';
   let transitioning = false;
   let timer: number | null = null;
+  let advanceTimer: number | null = null; // the short pause after an answer, before moving on
   const answers: QuizAnswers = { ...store.getState().quizAnswers };
 
   const screen = el('div', { class: 'screen quiz' });
@@ -92,15 +93,16 @@ export function renderQuiz(root: HTMLElement): () => void {
   }
 
   function selectOption(id: keyof QuizAnswers, value: string, button: HTMLElement) {
-    if (transitioning) return;
+    if (transitioning || advanceTimer !== null) return;
     // Clicking the already-chosen answer simply moves on; picking another
     // overwrites it. Either way Back keeps everything answered so far.
     (answers as Record<string, string>)[id] = value;
     screen.querySelectorAll('.quiz-option').forEach((o) => o.classList.remove('selected'));
     button.classList.add('selected', 'confirm');
     const last = step >= QUIZ_QUESTIONS.length - 1;
-    window.setTimeout(
+    advanceTimer = window.setTimeout(
       () => {
+        advanceTimer = null;
         if (last) {
           store.setQuizAnswers(answers);
           store.setScreen('rating');
@@ -113,10 +115,18 @@ export function renderQuiz(root: HTMLElement): () => void {
   }
 
   function goBack() {
+    // Pressing Back during the post-answer pause cancels the pending
+    // advance/submit instead of letting it fire afterwards.
+    if (advanceTimer !== null) {
+      window.clearTimeout(advanceTimer);
+      advanceTimer = null;
+    }
     if (step > 0) go(() => void (step -= 1), 'back');
+    else screen.querySelectorAll('.quiz-option.confirm').forEach((o) => o.classList.remove('confirm'));
   }
 
   return () => {
     if (timer !== null) window.clearTimeout(timer);
+    if (advanceTimer !== null) window.clearTimeout(advanceTimer);
   };
 }

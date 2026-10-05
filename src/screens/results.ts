@@ -16,6 +16,7 @@ const GROUPED_SIZE = 24;
 const PRECISE_SIZE = 10;
 const PRECISE_MIN_MATCH = 68; // precise mode only keeps titles at/above this match%
 const AI_REASON_LIMIT = 8;
+const HISTORY_FULL_WEIGHT_COUNT = 12;
 const MAX_PAGE_OFFSET = 18; // ~6 refreshes of live TMDB pages before we start reusing the pool
 // A rating changes the whole grid — give it a beat before recomputing so a
 // quick run of taps doesn't re-render on every single click, and so the
@@ -165,7 +166,17 @@ export function renderResults(root: HTMLElement): () => void {
     // Everything the local profile remembers from *previous* sessions —
     // this is what makes a returning user's first batch already informed
     // instead of a cold start every time (see src/lib/profile.ts).
-    for (const { item, rating } of historyAsCatalogItems()) engine.processResultRating(item, rating);
+    //
+    // Ratings made this session are also written to the profile, so skip
+    // any title already counted above (seed or result rating) — otherwise
+    // one rating would count twice. An imported film that is also a visible
+    // seed likewise counts once.
+    const counted = new Set<number>([...Object.keys(seedRatings).map(Number), ...resultRatings.keys()]);
+    const history = historyAsCatalogItems().filter(({ item }) => !counted.has(item.id));
+    // A big imported library must not outvote the quiz: past ~12 entries
+    // each one is scaled down so the library's total weight stays bounded.
+    const scale = Math.min(1, HISTORY_FULL_WEIGHT_COUNT / Math.max(1, history.length));
+    for (const { item, rating } of history) engine.processResultRating(item, rating, scale);
     return engine;
   }
 
@@ -236,6 +247,7 @@ export function renderResults(root: HTMLElement): () => void {
 
   const ENRICH_LIMIT = 24;
   const ENRICH_CONCURRENCY = 6;
+  const ENRICH_BUDGET_MS = 6000;
 
   /** Pre-scores the pool, then fetches OMDb ratings for the best
    * ENRICH_LIMIT unrated candidates (bounded concurrency; omdb.ts caches,
@@ -248,8 +260,11 @@ export function renderResults(root: HTMLElement): () => void {
       .getResults(pool, ratingSignals)
       .slice(0, ENRICH_LIMIT);
     let next = 0;
+    // Overall budget: ratings are a refinement, so stop starting new
+    // lookups after this and rank with whatever has arrived.
+    const deadline = Date.now() + ENRICH_BUDGET_MS;
     const worker = async () => {
-      while (next < top.length && !cancelled) {
+      while (next < top.length && !cancelled && Date.now() < deadline) {
         const entry = top[next++]!;
         const ext = await fetchExternalRatings(entry.title, entry.year);
         const original = itemsById.get(entry.id);

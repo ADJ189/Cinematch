@@ -45,7 +45,10 @@ export function renderSearch(root: HTMLElement): () => void {
   let debounceTimer: number | null = null;
   let searchToken = 0;
   let searchAbort: AbortController | null = null;
-  let selected: CatalogItem | null = null;
+  // Bumped by every title/person selection; an async load only paints if
+  // it is still the latest one, so a slow older response can't overwrite
+  // the page for a newer choice.
+  let detailToken = 0;
   let similarItems: ScoredItem[] = [];
   const resultRatings = new Map<number, RatingValue>();
 
@@ -173,11 +176,11 @@ export function renderSearch(root: HTMLElement): () => void {
   }
 
   async function selectPerson(id: number, host: HTMLElement) {
-    selected = null;
+    const token = ++detailToken;
     host.replaceChildren(el('p', { class: 'search-loading', role: 'status' }, ['Loading…']));
     try {
       const [person, work] = await Promise.all([getPersonDetails(id), getPersonBestWork(id)]);
-      if (cancelled) return;
+      if (cancelled || token !== detailToken) return;
       const items = work.slice(0, 12).map((w) => toSimilarItem(w, { ...w, genres: [] }));
       const photo = personImageUrl(person.profilePath);
       const hero = el('div', { class: 'search-hero' }, [
@@ -199,7 +202,7 @@ export function renderSearch(root: HTMLElement): () => void {
         ])
       );
     } catch {
-      if (cancelled) return;
+      if (cancelled || token !== detailToken) return;
       host.replaceChildren(
         el('div', { class: 'state-message', role: 'alert' }, [
           el('h3', {}, ['Couldn\u2019t load this person']),
@@ -214,7 +217,7 @@ export function renderSearch(root: HTMLElement): () => void {
   }
 
   async function selectTitle(item: CatalogItem, host: HTMLElement) {
-    selected = item;
+    const token = ++detailToken;
     resultRatings.clear();
     host.replaceChildren(el('p', { class: 'search-loading' }, [`Finding titles similar to ${item.title}…`]));
 
@@ -225,7 +228,7 @@ export function renderSearch(root: HTMLElement): () => void {
     } catch (err) {
       failed = err instanceof TmdbUnavailableError;
     }
-    if (cancelled || selected !== item) return;
+    if (cancelled || token !== detailToken) return;
 
     similarItems = similar.slice(0, 24).map((s) => toSimilarItem(s, item));
     drawDetail(item, similarItems, host, failed);
