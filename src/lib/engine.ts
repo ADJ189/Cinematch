@@ -78,17 +78,21 @@ export class RecommendationEngine {
    * actual recommendation the engine just made is the strongest signal
    * the app gets.
    */
-  processResultRating(item: CatalogItem, rating: number): void {
+  processResultRating(item: CatalogItem, rating: number, weightScale = 1): void {
     this.ratings = { ...this.ratings, [item.id]: rating };
-    const weight = ((rating - 3) / 2) * 0.85;
+    const weight = ((rating - 3) / 2) * 0.85 * weightScale;
     for (const g of item.genres) this.genre[g] = (this.genre[g] ?? 0) + weight;
     for (const v of item.vibe) this.vibe[v] = (this.vibe[v] ?? 0) + weight;
   }
 
   private scoreItem(item: CatalogItem): number {
     let s = 0;
-    for (const g of item.genres) s += (this.genre[g] ?? 0) * 30;
-    for (const v of item.vibe) s += (this.vibe[v] ?? 0) * 20;
+    // Affinities are summed from many ratings, so they're saturated: a
+    // lot of agreeing ratings strengthens a taste only up to a ceiling
+    // (AFFINITY_CAP), instead of growing without bound and pushing every
+    // matching title to the flat top of the match curve.
+    for (const g of item.genres) s += saturate(this.genre[g] ?? 0) * 30;
+    for (const v of item.vibe) s += saturate(this.vibe[v] ?? 0) * 20;
 
     const { language } = this.answers;
     if (language === 'english') s += item.language === 'en' ? 8 : -14;
@@ -212,8 +216,18 @@ export class RecommendationEngine {
  * the same thing across searches: ~35% with no taste signal, ~70% for a
  * solid single-signal fit, 90%+ when mood, vibe and history all agree.
  */
-const MATCH_CENTER = 12;
-const MATCH_SCALE = 22;
+const AFFINITY_CAP = 1.5;
+/** Smoothly bounds an affinity to ±AFFINITY_CAP; near-linear for the small
+ * values a quiz answer produces, so ordinary behavior is unchanged. */
+function saturate(x: number): number {
+  return AFFINITY_CAP * Math.tanh(x / AFFINITY_CAP);
+}
+
+// Fitted to the bounded raw range (affinity cap x weights): a one-signal
+// fit lands ~mid-70s, several agreeing signals reach the 90s, and heavy
+// libraries can't push every title to the ceiling.
+const MATCH_CENTER = 18;
+const MATCH_SCALE = 30;
 export function calibratedMatch(raw: number): number {
   const pct = 50 + 49 * Math.tanh((raw - MATCH_CENTER) / MATCH_SCALE);
   return Math.max(1, Math.min(99, Math.round(pct)));

@@ -407,16 +407,31 @@ export async function searchTitle(
  * disagree by one year across regional release dates).
  */
 export async function findCatalogItem(title: string, year: number, signal?: AbortSignal): Promise<CatalogItem | null> {
-  const params: Record<string, string> = { query: title, include_adult: 'false' };
-  if (year) params.year = String(year);
-  const data = await tmdbFetch<{ results: TmdbRawResult[] }>('/search/movie', params, signal);
-  for (const raw of data.results.slice(0, 5)) {
-    const item = toCatalogItem(raw, 'movie');
-    if (!item) continue;
-    if (year && Math.abs(item.year - year) > 1) continue;
-    return item;
+  // Deliberately NOT sent as TMDB's `year` filter: that filter would drop a
+  // film TMDB dates one year off from Letterboxd before we could ever
+  // consider it. Search by title, then judge the year ourselves.
+  const data = await tmdbFetch<{ results: TmdbRawResult[] }>(
+    '/search/movie',
+    { query: title, include_adult: 'false' },
+    signal
+  );
+  const candidates = data.results
+    .slice(0, 8)
+    .map((raw) => toCatalogItem(raw, 'movie'))
+    .filter((item): item is CatalogItem => item !== null);
+  if (!year) return candidates[0] ?? null;
+  // Exact year wins; otherwise the closest within one year. Ties keep
+  // TMDB's relevance order.
+  let best: CatalogItem | null = null;
+  let bestDiff = Infinity;
+  for (const item of candidates) {
+    const diff = Math.abs(item.year - year);
+    if (diff <= 1 && diff < bestDiff) {
+      best = item;
+      bestDiff = diff;
+    }
   }
-  return null;
+  return best;
 }
 
 interface TmdbMultiSearchRaw extends TmdbRawResult {
