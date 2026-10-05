@@ -152,6 +152,32 @@ function parseRequest(raw: unknown): RecommendRequestBody | null {
   return candidates.length > 0 ? { preferencesSummary: prefs, candidates } : null;
 }
 
+/** Reads the request body as UTF-8 text, returning null (and cancelling the
+ * stream) as soon as more than `maxBytes` have arrived. */
+async function readBodyCapped(request: Request, maxBytes: number): Promise<string | null> {
+  if (!request.body) return '';
+  const reader = request.body.getReader();
+  const chunks: Uint8Array[] = [];
+  let total = 0;
+  for (;;) {
+    const { done, value } = await reader.read();
+    if (done) break;
+    total += value.byteLength;
+    if (total > maxBytes) {
+      await reader.cancel().catch(() => {});
+      return null;
+    }
+    chunks.push(value);
+  }
+  const bytes = new Uint8Array(total);
+  let offset = 0;
+  for (const c of chunks) {
+    bytes.set(c, offset);
+    offset += c.byteLength;
+  }
+  return new TextDecoder().decode(bytes);
+}
+
 async function handleRecommend(request: Request, env: Env): Promise<Response> {
   if (!env.AI) return json({ error: 'Not available.' }, 503);
 
@@ -161,16 +187,19 @@ async function handleRecommend(request: Request, env: Env): Promise<Response> {
     if (!success) return json({ error: 'Too many requests.' }, 429);
   }
 
+  // Content-Length is only a hint (it can be absent or wrong), so the real
+  // bound is enforced while streaming: reading stops the moment the cap is
+  // exceeded instead of buffering the whole body first.
   const declared = Number(request.headers.get('Content-Length') ?? 0);
   if (declared > MAX_BODY_BYTES) return json({ error: 'Request too large.' }, 413);
 
-  let text: string;
+  let text: string | null;
   try {
-    text = await request.text();
+    text = await readBodyCapped(request, MAX_BODY_BYTES);
   } catch {
     return json({ error: 'Invalid request.' }, 400);
   }
-  if (text.length > MAX_BODY_BYTES) return json({ error: 'Request too large.' }, 413);
+  if (text === null) return json({ error: 'Request too large.' }, 413);
 
   let body: RecommendRequestBody | null;
   try {
