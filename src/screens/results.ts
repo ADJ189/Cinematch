@@ -173,10 +173,16 @@ export function renderResults(root: HTMLElement): () => void {
     // seed likewise counts once.
     const counted = new Set<number>([...Object.keys(seedRatings).map(Number), ...resultRatings.keys()]);
     const history = historyAsCatalogItems().filter(({ item }) => !counted.has(item.id));
-    // A big imported library must not outvote the quiz: past ~12 entries
-    // each one is scaled down so the library's total weight stays bounded.
-    const scale = Math.min(1, HISTORY_FULL_WEIGHT_COUNT / Math.max(1, history.length));
-    for (const { item, rating } of history) engine.processResultRating(item, rating, scale);
+    // A big imported library must not outvote the quiz, so *imported*
+    // entries are scaled down past ~12 films to keep the library's total
+    // weight bounded. Ratings the person gave deliberately in this app
+    // (calibration or result ratings from earlier sessions) always keep
+    // full weight, however large the import is.
+    const importedCount = history.filter((h) => h.imported).length;
+    const importScale = Math.min(1, HISTORY_FULL_WEIGHT_COUNT / Math.max(1, importedCount));
+    for (const { item, rating, imported } of history) {
+      engine.processResultRating(item, rating, imported ? importScale : 1);
+    }
     return engine;
   }
 
