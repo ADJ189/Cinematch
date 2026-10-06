@@ -29,6 +29,19 @@ All notable changes to this project are documented here.
 - Detail view: "Why this recommendation?", cast row, bottom sheet on mobile.
 - New design tokens: shadows, glows, focus ring, spacing scale, motion levels.
 
+### Review follow-ups (also in 1.8.0)
+- Letterboxd matching no longer sends TMDB's `year` filter (it hid films dated one year off); the ±1-year check now runs on unfiltered results, exact year preferred.
+- A rating is counted once: titles that are both a seed/result rating and in the saved history are no longer applied twice.
+- Taste affinities are saturated and large imported libraries are down-weighted, so heavy imports can't push every title to the top of the match curve (curve re-fitted).
+- Search: an older person/title response can no longer overwrite a newer selection.
+- Quiz: Back during the post-answer pause cancels the pending submit; the timer is cleared on leaving the screen.
+- Results: OMDb lookups have a 3.5s timeout and a 6s overall budget, so a hung request can't block the first batch.
+- Stale-chunk reload guard is reset only after a lazy screen actually loads, so a persistent failure shows the retry screen instead of reloading repeatedly.
+- `/api/recommend` enforces the 16 KB cap while streaming the body (stops reading at the limit) rather than after buffering it.
+
+- Import down-weighting now applies only to *imported* entries; ratings the person gave in the app in earlier sessions keep full weight regardless of library size. An import also no longer overwrites a rating the person gave themselves for the same film.
+- Letterboxd matching considers the whole TMDB result page and searches in stages (stated year → unfiltered → adjacent years), so a title with many namesakes still resolves to the right film.
+
 ### Not changed (still open from the audit)
 Watched/Not-for-me feedback, Tonight mode, Group Match, provider-aware filtering, browse collections, IMDb import, unit/E2E tests, and the shared-element poster transition are larger features and are not in this release.
 
