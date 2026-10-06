@@ -268,6 +268,9 @@ export function recordImportedRatings(entries: { item: CatalogItem; stars: numbe
   const p = getProfile();
   const byId = new Map(p.history.map((h) => [h.id, h]));
   for (const { item, stars } of entries) {
+    // A rating the person gave deliberately in the app beats an imported one.
+    const existing = byId.get(item.id);
+    if (existing && existing.source !== 'import') continue;
     byId.set(item.id, {
       id: item.id,
       tmdbType: item.tmdbType,
@@ -335,9 +338,10 @@ export function historyRatingFor(id: number): RatingValue | undefined {
 /** Reconstructs a minimal CatalogItem from a history entry — just enough
  * for engine.processResultRating(), which only reads genres/vibe/
  * language/voteAverage/popularity/id off it. */
-export function historyAsCatalogItems(): { item: CatalogItem; rating: number }[] {
+export function historyAsCatalogItems(): { item: CatalogItem; rating: number; imported: boolean }[] {
   return getProfile().history.map((h) => ({
     rating: h.stars ?? h.rating,
+    imported: h.source === 'import',
     item: {
       id: h.id,
       title: h.title,
