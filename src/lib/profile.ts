@@ -303,9 +303,22 @@ export function recordImportedRatings(entries: { item: CatalogItem; stars: numbe
       source: 'import',
     });
   }
-  // Persist once for the whole batch, de-duplicated by TMDB id; the newest
-  // entries win if the cap is exceeded.
-  p.history = [...byId.values()].slice(-MAX_HISTORY);
+  // Persist once for the whole batch, de-duplicated by TMDB id. If the cap is
+  // exceeded, drop the oldest *imported* entries first so a large library can
+  // never evict a rating the person gave deliberately in the app.
+  let merged = [...byId.values()];
+  let overflow = merged.length - MAX_HISTORY;
+  if (overflow > 0) {
+    merged = merged.filter((h) => {
+      if (overflow > 0 && h.source === 'import') {
+        overflow--;
+        return false;
+      }
+      return true;
+    });
+    if (merged.length > MAX_HISTORY) merged = merged.slice(-MAX_HISTORY);
+  }
+  p.history = merged;
   writeRaw(p);
   return kept;
 }
