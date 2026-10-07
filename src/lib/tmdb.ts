@@ -443,8 +443,13 @@ export async function findCatalogItem(title: string, year: number, signal?: Abor
   // 3. Last resort: the adjacent years, filtered, so a namesake-heavy
   //    title that is off by one is still found. Closest year wins; ties
   //    keep the earlier-year-first order.
-  const [before, after] = await Promise.all([search(year - 1), search(year + 1)]);
-  return closest([...before, ...after]);
+  //    One search failing must not discard the other's result.
+  const settled = await Promise.allSettled([search(year - 1), search(year + 1)]);
+  const found = settled.flatMap((r) => (r.status === 'fulfilled' ? r.value : []));
+  const failure = settled.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+  // Both failed: surface the error. One failed: use what the other found.
+  if (failure && settled.every((r) => r.status === 'rejected')) throw failure.reason;
+  return closest(found);
 }
 
 interface TmdbMultiSearchRaw extends TmdbRawResult {

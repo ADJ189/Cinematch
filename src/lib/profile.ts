@@ -264,13 +264,27 @@ export function recordRating(item: CatalogItem, rating: RatingValue, source: 'ca
   writeRaw(p);
 }
 
-export function recordImportedRatings(entries: { item: CatalogItem; stars: number }[]): void {
+/** True when the person rated this title themselves in the app (calibration
+ * or result screen), as opposed to it arriving via a library import. */
+export function hasDeliberateRating(id: number): boolean {
+  const existing = getProfile().history.find((h) => h.id === id);
+  return !!existing && existing.source !== 'import';
+}
+
+/** Returns the TMDB ids that were skipped because the person had already
+ * rated them in the app, so callers can keep other stores consistent with
+ * the profile instead of overwriting the preserved rating. */
+export function recordImportedRatings(entries: { item: CatalogItem; stars: number }[]): Set<number> {
   const p = getProfile();
+  const kept = new Set<number>();
   const byId = new Map(p.history.map((h) => [h.id, h]));
   for (const { item, stars } of entries) {
     // A rating the person gave deliberately in the app beats an imported one.
     const existing = byId.get(item.id);
-    if (existing && existing.source !== 'import') continue;
+    if (existing && existing.source !== 'import') {
+      kept.add(item.id);
+      continue;
+    }
     byId.set(item.id, {
       id: item.id,
       tmdbType: item.tmdbType,
@@ -293,6 +307,7 @@ export function recordImportedRatings(entries: { item: CatalogItem; stars: numbe
   // entries win if the cap is exceeded.
   p.history = [...byId.values()].slice(-MAX_HISTORY);
   writeRaw(p);
+  return kept;
 }
 
 const VIBE_VALUES = new Set(['dark', 'light', 'intellectual', 'feelgood', 'epic']);
