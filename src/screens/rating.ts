@@ -1,7 +1,7 @@
 import { buildRatingPool } from '../lib/rating-pool';
 import { buildPosterImage, el, mount } from '../lib/dom';
 import { parseLetterboxdCsv } from '../lib/letterboxd';
-import { recordImportedRatings, recordSeedRating } from '../lib/profile';
+import { hasDeliberateRating, recordImportedRatings, recordSeedRating } from '../lib/profile';
 import { store } from '../lib/store';
 import { findCatalogItem, isTmdbConfigured, posterUrl, searchTitle } from '../lib/tmdb';
 import type { CatalogItem } from '../lib/types';
@@ -180,10 +180,16 @@ export function renderRating(root: HTMLElement): () => void {
       // Without TMDB we can only match against the cards on screen.
       if (!isTmdbConfigured) {
         const imported: Record<number, RatingValue> = {};
+        const sessionRatings = store.getState().ratings;
         for (const row of rows) {
           const seed = seeds.find((s) => s.title.toLowerCase() === row.title.toLowerCase() && (!row.year || s.year === row.year));
-          if (seed) imported[seed.id] = row.rating as RatingValue;
-          else unmatched++;
+          if (!seed) {
+            unmatched++;
+            continue;
+          }
+          // A rating given in the app beats an imported one.
+          if (sessionRatings[seed.id] !== undefined || hasDeliberateRating(seed.id)) continue;
+          imported[seed.id] = row.rating as RatingValue;
         }
         store.importRatings(imported);
         paintImported(imported);
@@ -212,11 +218,12 @@ export function renderRating(root: HTMLElement): () => void {
 
       // Whole library, persisted and de-duplicated by TMDB id: all of it
       // calibrates the engine, not only titles that happen to be on a card.
-      recordImportedRatings(matched);
+      const keptIds = recordImportedRatings(matched);
 
       // Titles that are also visible as seed cards light up their stars.
       const imported: Record<number, RatingValue> = {};
       for (const m of matched) {
+        if (keptIds.has(m.item.id) || store.getState().ratings[m.item.id] !== undefined) continue;
         if (seeds.some((s) => s.id === m.item.id)) imported[m.item.id] = Math.max(1, Math.min(5, Math.round(m.stars))) as RatingValue;
       }
       store.importRatings(imported);
