@@ -180,15 +180,16 @@ export function renderRating(root: HTMLElement): () => void {
       // Without TMDB we can only match against the cards on screen.
       if (!isTmdbConfigured) {
         const imported: Record<number, RatingValue> = {};
-        const sessionRatings = store.getState().ratings;
         for (const row of rows) {
           const seed = seeds.find((s) => s.title.toLowerCase() === row.title.toLowerCase() && (!row.year || s.year === row.year));
           if (!seed) {
             unmatched++;
             continue;
           }
-          // A rating given in the app beats an imported one.
-          if (sessionRatings[seed.id] !== undefined || hasDeliberateRating(seed.id)) continue;
+          // A rating given in the app beats an imported one. A session rating
+          // that came from an earlier import does not, so a re-import can
+          // update it; in-app ratings are always recorded in the profile.
+          if (hasDeliberateRating(seed.id)) continue;
           imported[seed.id] = row.rating as RatingValue;
         }
         store.importRatings(imported);
@@ -223,7 +224,9 @@ export function renderRating(root: HTMLElement): () => void {
       // Titles that are also visible as seed cards light up their stars.
       const imported: Record<number, RatingValue> = {};
       for (const m of matched) {
-        if (keptIds.has(m.item.id) || store.getState().ratings[m.item.id] !== undefined) continue;
+        // Only ratings given in the app are protected; a session rating left
+        // by an earlier import is replaced by this file's value.
+        if (keptIds.has(m.item.id)) continue;
         if (seeds.some((s) => s.id === m.item.id)) imported[m.item.id] = Math.max(1, Math.min(5, Math.round(m.stars))) as RatingValue;
       }
       store.importRatings(imported);
