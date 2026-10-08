@@ -8,18 +8,27 @@ import type { CatalogItem } from '../lib/types';
 import type { RatingSeed, RatingValue } from '../lib/types';
 
 const MIN_RATINGS_TO_CONTINUE = 3;
+const CONTINUE_LABEL = 'Get my recommendations →';
 
 export function renderRating(root: HTMLElement): () => void {
   let cancelled = false;
   const cards = new Map<number, HTMLElement>();
   let seeds: RatingSeed[] = store.getState().ratingSeeds;
-  let libraryCount = 0;
+  // TMDB ids of every imported library film. A set (not a running total) so a
+  // film appearing in two files, or also on a card, is only counted once.
+  const libraryIds = new Set<number>();
+  // Aborts in-flight TMDB lookups when the screen is left.
+  const abort = new AbortController();
+  // Imports are chained through importQueue (see onImportFile); pendingImports
+  // counts running + queued ones. Declared up front because syncFromStore reads it.
+  let importQueue: Promise<void> = Promise.resolve();
+  let pendingImports = 0;
 
   const grid = el('div', { class: 'rating-grid' });
   const continueBtn = el(
     'button',
     { class: 'btn btn-primary', onclick: onContinue, disabled: true },
-    ['Get my recommendations →']
+    [CONTINUE_LABEL]
   );
   const countLabel = el('span', { class: 'rating-count' }, ['0 rated']);
 
@@ -94,6 +103,10 @@ export function renderRating(root: HTMLElement): () => void {
       }
     });
 
+    // Cards are rebuilt when the pool finishes loading, so stars for anything
+    // already rated or imported (e.g. while the skeleton grid was showing, or
+    // on a return visit to this screen) must be restored, not just counted.
+    paintImported(store.getState().ratings);
     syncFromStore();
   }
 
@@ -151,10 +164,21 @@ export function renderRating(root: HTMLElement): () => void {
     syncFromStore();
   }
 
+  function ratedCount(): number {
+    const ids = new Set<number>(Object.keys(store.getState().ratings).map(Number));
+    for (const id of libraryIds) ids.add(id);
+    return ids.size;
+  }
+
   function syncFromStore() {
-    const count = Object.keys(store.getState().ratings).length + libraryCount;
+    const count = ratedCount();
     countLabel.textContent = `${count} rated`;
-    continueBtn.toggleAttribute('disabled', count < MIN_RATINGS_TO_CONTINUE);
+    // Continue is held back while any import is running or queued: leaving the
+    // screen cancels unfinished imports, so continuing early would score the
+    // recommendations from an older file instead of the one just selected.
+    const importing = pendingImports > 0;
+    continueBtn.toggleAttribute('disabled', importing || count < MIN_RATINGS_TO_CONTINUE);
+    continueBtn.textContent = importing ? 'Importing your library\u2026' : CONTINUE_LABEL;
   }
 
   const IMPORT_CAP = 400; // most recent rows; keeps TMDB lookups bounded
@@ -162,12 +186,16 @@ export function renderRating(root: HTMLElement): () => void {
 
   // Imports run strictly one at a time, in the order the files were picked.
   // Each import mutates shared state (session ratings, profile, card stars,
-  // libraryCount); if two ran concurrently the slower, older file could finish
+  // library ids); if two ran concurrently the slower, older file could finish
   // last and overwrite overlapping ratings from the newer one. Chaining them
   // keeps the last-selected file authoritative while still letting a finished
   // import be updated by a later one.
-  let importQueue: Promise<void> = Promise.resolve();
-  let pendingImports = 0;
+
+  /** Import progress text, with a note when more files are waiting behind it. */
+  function setImportStatus(message: string) {
+    const waiting = pendingImports - 1;
+    importStatus.textContent = waiting > 0 ? `${message} (${waiting} more queued)` : message;
+  }
 
   function onImportFile(e: Event) {
     const input = e.target as HTMLInputElement;
@@ -175,17 +203,17 @@ export function renderRating(root: HTMLElement): () => void {
     if (!file) return;
     input.value = '';
 
-    if (pendingImports > 0) {
-      importStatus.textContent = 'Another import is still running \u2014 yours is queued.';
-    }
+    if (pendingImports > 0) importStatus.textContent = 'Another import is still running \u2014 yours is queued.';
     pendingImports++;
+    syncFromStore(); // disables Continue right away
     importQueue = importQueue
       .then(() => (cancelled ? undefined : runImport(file)))
       .catch(() => {
-        if (!cancelled) importStatus.textContent = 'Import failed \u2014 please try again.';
+        if (!cancelled) setImportStatus('Import failed \u2014 please try again.');
       })
       .finally(() => {
         pendingImports--;
+        if (!cancelled) syncFromStore();
       });
   }
 
@@ -194,11 +222,10 @@ export function renderRating(root: HTMLElement): () => void {
     if (cancelled) return;
     const rows = parseLetterboxdCsv(text).slice(-IMPORT_CAP);
     if (rows.length === 0) {
-      importStatus.textContent = 'That file didn\u2019t look like a Letterboxd ratings.csv \u2014 export it from Settings \u2192 Data.';
+      setImportStatus('That file didn\u2019t look like a Letterboxd ratings.csv \u2014 export it from Settings \u2192 Data.');
       return;
     }
 
-    const matched: { item: CatalogItem; stars: number }[] = [];
     let unmatched = 0;
     let done = 0;
 
@@ -219,28 +246,34 @@ export function renderRating(root: HTMLElement): () => void {
       }
       store.importRatings(imported);
       paintImported(imported);
-      importStatus.textContent = `Matched ${Object.keys(imported).length} of ${rows.length}. Add a TMDB key to match the rest of your library.`;
+      setImportStatus(`Matched ${Object.keys(imported).length} of ${rows.length}. Add a TMDB key to match the rest of your library.`);
       syncFromStore();
       return;
     }
 
+    // Lookups finish out of order, so results are slotted by row index and
+    // flattened afterwards. That keeps the outcome (including which row wins
+    // when two rows resolve to the same film) independent of network timing.
+    const slots = Array.from({ length: rows.length }, (): { item: CatalogItem; stars: number } | null => null);
     let next = 0;
     const worker = async () => {
       while (next < rows.length && !cancelled) {
-        const row = rows[next++]!;
+        const index = next++;
+        const row = rows[index]!;
         try {
-          const item = await findCatalogItem(row.title, row.year);
-          if (item) matched.push({ item, stars: row.stars });
+          const item = await findCatalogItem(row.title, row.year, abort.signal);
+          if (item) slots[index] = { item, stars: row.stars };
           else unmatched++;
         } catch {
           unmatched++;
         }
         done++;
-        importStatus.textContent = `Matching your library\u2026 ${done} of ${rows.length}`;
+        if (!cancelled) setImportStatus(`Matching your library\u2026 ${done} of ${rows.length}`);
       }
     };
     await Promise.all(Array.from({ length: IMPORT_CONCURRENCY }, worker));
     if (cancelled) return;
+    const matched = slots.filter((m): m is { item: CatalogItem; stars: number } => m !== null);
 
     // Whole library, persisted and de-duplicated by TMDB id: all of it
     // calibrates the engine, not only titles that happen to be on a card.
@@ -258,8 +291,8 @@ export function renderRating(root: HTMLElement): () => void {
     paintImported(imported);
 
     // The library itself counts toward the "rate a few" requirement.
-    libraryCount = matched.length;
-    importStatus.textContent = `Imported ${rows.length} films \u00b7 matched ${matched.length} \u00b7 couldn\u2019t identify ${unmatched}.`;
+    for (const m of matched) libraryIds.add(m.item.id);
+    setImportStatus(`Imported ${rows.length} films \u00b7 matched ${matched.length} \u00b7 couldn\u2019t identify ${unmatched}.`);
     syncFromStore();
   }
 
@@ -271,10 +304,12 @@ export function renderRating(root: HTMLElement): () => void {
   }
 
   function onContinue() {
+    if (pendingImports > 0) return; // belt and braces: the button is also disabled
     store.setScreen('results');
   }
 
   return () => {
     cancelled = true;
+    abort.abort();
   };
 }

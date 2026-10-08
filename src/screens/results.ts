@@ -171,7 +171,16 @@ export function renderResults(root: HTMLElement): () => void {
     // any title already counted above (seed or result rating) — otherwise
     // one rating would count twice. An imported film that is also a visible
     // seed likewise counts once.
-    const counted = new Set<number>([...Object.keys(seedRatings).map(Number), ...resultRatings.keys()]);
+    //
+    // Only seed ratings that processRatings() could actually use are skipped
+    // here (those with a signal entry). After "Change answers" the rating
+    // screen can build a different pool, whose signal map no longer covers
+    // seeds rated earlier; those ratings contribute nothing above, so they
+    // must fall through to the history pass instead of being dropped.
+    const countedSeeds = Object.keys(seedRatings)
+      .map(Number)
+      .filter((id) => ratingSignals[id] !== undefined);
+    const counted = new Set<number>([...countedSeeds, ...resultRatings.keys()]);
     const history = historyAsCatalogItems().filter(({ item }) => !counted.has(item.id));
     // A big imported library must not outvote the quiz, so *imported*
     // entries are scaled down past ~12 films to keep the library's total
