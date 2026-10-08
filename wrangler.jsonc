@@ -20,6 +20,13 @@
   "ai": {
     "binding": "AI"
   },
+  // Optional but recommended once the AI binding is on: per-IP rate limit
+  // for POST /api/recommend. worker/index.ts uses env.RECOMMEND_LIMITER
+  // only if it exists, so leaving this commented out is safe.
+  //
+  // "ratelimits": [
+  //   { "name": "RECOMMEND_LIMITER", "namespace_id": "1001", "simple": { "limit": 10, "period": 60 } }
+  // ],
   "observability": {
     "enabled": true
   }

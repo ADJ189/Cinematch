@@ -1,6 +1,6 @@
 {
   "name": "cinematch",
-  "version": "1.7.0",
+  "version": "1.8.0",
   "private": true,
   "type": "module",
   "description": "CineMatch \u2014 a fast, framework-free movie & TV recommendation engine.",
@@ -23,6 +23,6 @@
     "wrangler": "^4.144.0"
   },
   "overrides": {
-    "undici": "7.29.0"
+    "undici": "7.30.0"
   }
 }

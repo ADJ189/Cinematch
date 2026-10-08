@@ -17,9 +17,10 @@
 //      the app before, not a cold start every time.
 
 import type { CatalogItem, Era, Genre, RatingValue, Vibe } from './types';
+import { safeGet, safeSet } from './storage';
 
 const STORAGE_KEY = 'cinematch.profile.v1';
-const MAX_HISTORY = 400; // oldest entries drop off past this — plenty for scoring, bounded for storage
+const MAX_HISTORY = 1000; // oldest entries drop off past this — plenty for scoring, bounded for storage
 
 export interface HistoryEntry {
   id: number;
@@ -34,8 +35,10 @@ export interface HistoryEntry {
   voteAverage: number;
   popularity: number;
   rating: RatingValue;
+  /** Exact 0.5-5 rating when it came from an import (rating is its rounded 1-5 form). */
+  stars?: number;
   ratedAt: number;
-  source: 'calibration' | 'result';
+  source: 'calibration' | 'result' | 'import';
 }
 
 export interface WatchlistEntry {
@@ -101,16 +104,90 @@ function freshProfile(): LocalProfile {
   };
 }
 
-/** localStorage throws in private-browsing/storage-disabled contexts —
- * every call here is guarded so a blocked profile degrades to
- * session-only behavior instead of crashing the app. */
+const GENRE_VALUES = new Set(['thriller', 'comedy', 'drama', 'scifi', 'horror', 'adventure', 'anime', 'cartoon', 'sitcom']);
+const ERA_VALUES = new Set(['classic', 'mid', 'recent', 'any']);
+
+const isObj = (v: unknown): v is Record<string, unknown> => typeof v === 'object' && v !== null && !Array.isArray(v);
+const num = (v: unknown, fallback = 0): number => (typeof v === 'number' && Number.isFinite(v) ? v : fallback);
+const str = (v: unknown, fallback = ''): string => (typeof v === 'string' ? v : fallback);
+
+function sanitizeHistoryEntry(raw: unknown): HistoryEntry | null {
+  if (!isObj(raw)) return null;
+  const id = num(raw.id, -1);
+  const rating = num(raw.rating, 0);
+  const tmdbType = raw.tmdbType === 'tv' ? 'tv' : raw.tmdbType === 'movie' ? 'movie' : null;
+  if (id < 0 || !tmdbType || !Number.isInteger(rating) || rating < 1 || rating > 5) return null;
+  const list = (v: unknown, allowed: Set<string>) =>
+    Array.isArray(v) ? v.filter((x): x is string => typeof x === 'string' && allowed.has(x)) : [];
+  return {
+    id,
+    tmdbType,
+    title: str(raw.title, 'Untitled').slice(0, 200),
+    year: num(raw.year),
+    posterPath: typeof raw.posterPath === 'string' ? raw.posterPath : null,
+    genres: list(raw.genres, GENRE_VALUES) as Genre[],
+    vibe: list(raw.vibe, VIBE_VALUES) as Vibe[],
+    language: str(raw.language, 'en').slice(0, 8),
+    era: (ERA_VALUES.has(str(raw.era)) ? raw.era : 'any') as Era,
+    voteAverage: num(raw.voteAverage),
+    popularity: num(raw.popularity),
+    rating: rating as RatingValue,
+    stars: typeof raw.stars === 'number' && raw.stars >= 0.5 && raw.stars <= 5 ? raw.stars : undefined,
+    ratedAt: num(raw.ratedAt, Date.now()),
+    source: raw.source === 'calibration' ? 'calibration' : raw.source === 'import' ? 'import' : 'result',
+  };
+}
+
+function sanitizeWatchlistEntry(raw: unknown): WatchlistEntry | null {
+  if (!isObj(raw)) return null;
+  const id = num(raw.id, -1);
+  const tmdbType = raw.tmdbType === 'tv' ? 'tv' : raw.tmdbType === 'movie' ? 'movie' : null;
+  if (id < 0 || !tmdbType) return null;
+  return {
+    id,
+    tmdbType,
+    title: str(raw.title, 'Untitled').slice(0, 200),
+    year: num(raw.year),
+    posterPath: typeof raw.posterPath === 'string' ? raw.posterPath : null,
+    addedAt: num(raw.addedAt, Date.now()),
+  };
+}
+
+/** Version-checking alone trusts whatever JSON happens to be in storage.
+ * This rebuilds the profile field by field so a corrupted or hand-edited
+ * entry degrades to safe defaults (and drops only the bad rows) instead
+ * of crashing a screen that assumed the shape was right. */
+function sanitizeProfile(raw: unknown): LocalProfile | null {
+  if (!isObj(raw) || raw.version !== 1) return null;
+  const base = freshProfile();
+  const history = Array.isArray(raw.history)
+    ? raw.history.map(sanitizeHistoryEntry).filter((h): h is HistoryEntry => h !== null)
+    : [];
+  const watchlist = Array.isArray(raw.watchlist)
+    ? raw.watchlist.map(sanitizeWatchlistEntry).filter((w): w is WatchlistEntry => w !== null)
+    : [];
+  const emoji = typeof raw.avatarEmoji === 'string' && AVATAR_EMOJIS.includes(raw.avatarEmoji) ? raw.avatarEmoji : undefined;
+  return {
+    version: 1,
+    id: str(raw.id) || base.id,
+    displayName: str(raw.displayName).trim().slice(0, 40) || base.displayName,
+    avatarColor: /^#[0-9a-fA-F]{6}$/.test(str(raw.avatarColor)) ? str(raw.avatarColor) : base.avatarColor,
+    avatarEmoji: emoji,
+    createdAt: num(raw.createdAt, base.createdAt),
+    lastVisitAt: num(raw.lastVisitAt, base.lastVisitAt),
+    history: history.slice(-MAX_HISTORY),
+    watchlist,
+  };
+}
+
+/** Storage can be blocked entirely (private browsing) — every access goes
+ * through storage.ts, so a blocked profile degrades to session-only
+ * behavior instead of crashing the app. */
 function readRaw(): LocalProfile | null {
+  const raw = safeGet(STORAGE_KEY);
+  if (!raw) return null;
   try {
-    const raw = localStorage.getItem(STORAGE_KEY);
-    if (!raw) return null;
-    const parsed = JSON.parse(raw) as LocalProfile;
-    if (parsed.version !== 1) return null;
-    return parsed;
+    return sanitizeProfile(JSON.parse(raw));
   } catch {
     return null;
   }
@@ -118,8 +195,7 @@ function readRaw(): LocalProfile | null {
 
 function writeRaw(profile: LocalProfile): boolean {
   try {
-    localStorage.setItem(STORAGE_KEY, JSON.stringify(profile));
-    return true;
+    return safeSet(STORAGE_KEY, JSON.stringify(profile));
   } catch {
     return false;
   }
@@ -188,6 +264,65 @@ export function recordRating(item: CatalogItem, rating: RatingValue, source: 'ca
   writeRaw(p);
 }
 
+/** True when the person rated this title themselves in the app (calibration
+ * or result screen), as opposed to it arriving via a library import. */
+export function hasDeliberateRating(id: number): boolean {
+  const existing = getProfile().history.find((h) => h.id === id);
+  return !!existing && existing.source !== 'import';
+}
+
+/** Returns the TMDB ids that were skipped because the person had already
+ * rated them in the app, so callers can keep other stores consistent with
+ * the profile instead of overwriting the preserved rating. */
+export function recordImportedRatings(entries: { item: CatalogItem; stars: number }[]): Set<number> {
+  const p = getProfile();
+  const kept = new Set<number>();
+  const byId = new Map(p.history.map((h) => [h.id, h]));
+  for (const { item, stars } of entries) {
+    // A rating the person gave deliberately in the app beats an imported one.
+    const existing = byId.get(item.id);
+    if (existing && existing.source !== 'import') {
+      kept.add(item.id);
+      continue;
+    }
+    byId.set(item.id, {
+      id: item.id,
+      tmdbType: item.tmdbType,
+      title: item.title,
+      year: item.year,
+      posterPath: item.posterPath,
+      genres: item.genres,
+      vibe: item.vibe,
+      language: item.language,
+      era: item.era,
+      voteAverage: item.voteAverage,
+      popularity: item.popularity,
+      rating: Math.max(1, Math.min(5, Math.round(stars))) as RatingValue,
+      stars,
+      ratedAt: Date.now(),
+      source: 'import',
+    });
+  }
+  // Persist once for the whole batch, de-duplicated by TMDB id. If the cap is
+  // exceeded, drop the oldest *imported* entries first so a large library can
+  // never evict a rating the person gave deliberately in the app.
+  let merged = [...byId.values()];
+  let overflow = merged.length - MAX_HISTORY;
+  if (overflow > 0) {
+    merged = merged.filter((h) => {
+      if (overflow > 0 && h.source === 'import') {
+        overflow--;
+        return false;
+      }
+      return true;
+    });
+    if (merged.length > MAX_HISTORY) merged = merged.slice(-MAX_HISTORY);
+  }
+  p.history = merged;
+  writeRaw(p);
+  return kept;
+}
+
 const VIBE_VALUES = new Set(['dark', 'light', 'intellectual', 'feelgood', 'epic']);
 
 /** The calibration screen's seed list only carries id/title/year/poster —
@@ -231,9 +366,10 @@ export function historyRatingFor(id: number): RatingValue | undefined {
 /** Reconstructs a minimal CatalogItem from a history entry — just enough
  * for engine.processResultRating(), which only reads genres/vibe/
  * language/voteAverage/popularity/id off it. */
-export function historyAsCatalogItems(): { item: CatalogItem; rating: RatingValue }[] {
+export function historyAsCatalogItems(): { item: CatalogItem; rating: number; imported: boolean }[] {
   return getProfile().history.map((h) => ({
-    rating: h.rating,
+    rating: h.stars ?? h.rating,
+    imported: h.source === 'import',
     item: {
       id: h.id,
       title: h.title,

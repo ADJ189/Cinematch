@@ -12,6 +12,8 @@ import { renderLanding } from './screens/landing';
 import { store } from './lib/store';
 import { initTheme } from './lib/theme';
 import { renderHeader } from './lib/header';
+import { el, mount } from './lib/dom';
+import { safeGet, safeSet } from './lib/storage';
 import type { Screen } from './lib/types';
 
 initTheme();
@@ -70,12 +72,57 @@ store.subscribe((state) => {
   const loader = lazyLoaders[state.screen];
   if (!loader) return;
   app.classList.add('screen-loading');
-  void loader().then((renderer) => {
-    if (token !== navToken) return;
-    app.classList.remove('screen-loading');
-    currentCleanup = renderer(app);
-  });
+  loadLazyScreen(loader, token);
 });
+
+const CHUNK_RELOAD_KEY = 'cinematch.chunk-reload';
+
+function loadLazyScreen(loader: () => Promise<Renderer>, token: number) {
+  loader()
+    .then((renderer) => {
+      // A chunk really loaded, so the one-shot reload guard can reset and a
+      // *future* stale deploy may self-heal again. Persistent failures never
+      // reach this line, so they can't loop.
+      safeSet(CHUNK_RELOAD_KEY, '0');
+      if (token !== navToken) return;
+      app.classList.remove('screen-loading');
+      currentCleanup = renderer(app);
+    })
+    .catch(() => {
+      if (token !== navToken) return;
+      // A stale chunk after a new deploy is the classic cause: the old
+      // index references hashed files that no longer exist. One automatic
+      // reload (guarded so it can never loop) picks up the new build.
+      if (safeGet(CHUNK_RELOAD_KEY) !== '1' && safeSet(CHUNK_RELOAD_KEY, '1')) {
+        window.location.reload();
+        return;
+      }
+      app.classList.remove('screen-loading');
+      mount(
+        app,
+        el('div', { class: 'screen' }, [
+          el('div', { class: 'state-message', role: 'alert' }, [
+            el('h2', {}, ['This screen didn\u2019t load']),
+            el('p', {}, ['Your connection may have dropped, or a new version was just published. Your answers are safe.']),
+            el('div', { class: 'state-message-actions' }, [
+              el(
+                'button',
+                {
+                  class: 'btn btn-primary',
+                  onclick: () => {
+                    app.classList.add('screen-loading');
+                    loadLazyScreen(loader, token);
+                  },
+                },
+                ['Try again']
+              ),
+              el('button', { class: 'btn btn-ghost', onclick: () => window.location.reload() }, ['Reload the app']),
+            ]),
+          ]),
+        ])
+      );
+    });
+}
 
 dismissBootLoader();
 

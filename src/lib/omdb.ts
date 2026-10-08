@@ -10,6 +10,8 @@ const KEY = import.meta.env.VITE_OMDB_KEY ?? '';
 
 export const isOmdbConfigured = Boolean(KEY);
 
+const OMDB_TIMEOUT_MS = 3500;
+
 const cache = new Map<string, ExternalRatings | null>();
 
 export async function fetchExternalRatings(
@@ -27,7 +29,8 @@ export async function fetchExternalRatings(
     url.searchParams.set('t', title);
     url.searchParams.set('y', String(year));
 
-    const res = await fetch(url.toString());
+    // A hung request must never hold the results screen hostage.
+    const res = await fetch(url.toString(), { signal: AbortSignal.timeout(OMDB_TIMEOUT_MS) });
     if (!res.ok) throw new Error(`OMDb ${res.status}`);
     const data = (await res.json()) as {
       Response: string;

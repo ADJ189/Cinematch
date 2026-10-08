@@ -27,7 +27,7 @@ export class RecommendationEngine {
   private genre: GenreAffinityMap = {};
   private vibe: GenreAffinityMap = {};
   private answers: QuizAnswers = {};
-  private ratings: Record<number, RatingValue> = {};
+  private ratings: Record<number, number> = {};
   private ratedSeeds: RatingSeed[] = [];
 
   processQuiz(answers: QuizAnswers): void {
@@ -78,17 +78,21 @@ export class RecommendationEngine {
    * actual recommendation the engine just made is the strongest signal
    * the app gets.
    */
-  processResultRating(item: CatalogItem, rating: RatingValue): void {
+  processResultRating(item: CatalogItem, rating: number, weightScale = 1): void {
     this.ratings = { ...this.ratings, [item.id]: rating };
-    const weight = ((rating - 3) / 2) * 0.85;
+    const weight = ((rating - 3) / 2) * 0.85 * weightScale;
     for (const g of item.genres) this.genre[g] = (this.genre[g] ?? 0) + weight;
     for (const v of item.vibe) this.vibe[v] = (this.vibe[v] ?? 0) + weight;
   }
 
   private scoreItem(item: CatalogItem): number {
     let s = 0;
-    for (const g of item.genres) s += (this.genre[g] ?? 0) * 30;
-    for (const v of item.vibe) s += (this.vibe[v] ?? 0) * 20;
+    // Affinities are summed from many ratings, so they're saturated: a
+    // lot of agreeing ratings strengthens a taste only up to a ceiling
+    // (AFFINITY_CAP), instead of growing without bound and pushing every
+    // matching title to the flat top of the match curve.
+    for (const g of item.genres) s += saturate(this.genre[g] ?? 0) * 30;
+    for (const v of item.vibe) s += saturate(this.vibe[v] ?? 0) * 20;
 
     const { language } = this.answers;
     if (language === 'english') s += item.language === 'en' ? 8 : -14;
@@ -177,17 +181,54 @@ export class RecommendationEngine {
     const scored = pool.map((item) => ({ item, raw: this.scoreItem(item) }));
     scored.sort((a, b) => b.raw - a.raw);
 
-    const maxScore = scored[0]?.raw || 1;
+    const maxScore = scored[0]?.raw ?? 0;
     const minScore = scored[scored.length - 1]?.raw ?? 0;
     const range = Math.max(1, maxScore - minScore);
 
-    return scored.map(({ item, raw }) => ({
-      ...item,
-      // Normalize against the actual score spread of this query's pool
-      // (not a fixed 0-99 clamp), so match% meaningfully separates results
-      // instead of clustering everything near 99.
-      matchPct: Math.max(1, Math.min(99, Math.round(((raw - minScore) / range) * 99))),
-      reasons: this.getReasonsFor(item, signalsBySeedId),
-    }));
+    return scored.map(({ item, raw }) => {
+      const matchPct = calibratedMatch(raw);
+      return {
+        ...item,
+        matchPct,
+        rankPct: Math.round(((raw - minScore) / range) * 100),
+        score: raw,
+        fit: matchPct >= 85 ? 'strong' : matchPct >= 68 ? 'good' : 'stretch',
+        reasons: this.getReasonsFor(item, signalsBySeedId),
+        matchedTags: this.matchedTagsFor(item),
+      };
+    });
   }
+
+  private matchedTagsFor(item: CatalogItem): string[] {
+    const tags: string[] = [];
+    for (const g of item.genres) if ((this.genre[g] ?? 0) > 0.2) tags.push(g);
+    for (const v of item.vibe) if ((this.vibe[v] ?? 0) > 0.2) tags.push(v);
+    return tags.slice(0, 4);
+  }
+}
+
+/**
+ * Absolute match calibration. The old formula min/max-scaled every batch,
+ * so the worst title in any pool read ~1% and the best ~99% no matter how
+ * weak the pool was — "92%" only meant "near the top of this batch".
+ * Raw scores have a stable scale (genre affinity x30, vibe x20, small
+ * bounded bonuses), so a fixed squashing curve gives percentages that mean
+ * the same thing across searches: ~35% with no taste signal, ~70% for a
+ * solid single-signal fit, 90%+ when mood, vibe and history all agree.
+ */
+const AFFINITY_CAP = 1.5;
+/** Smoothly bounds an affinity to ±AFFINITY_CAP; near-linear for the small
+ * values a quiz answer produces, so ordinary behavior is unchanged. */
+function saturate(x: number): number {
+  return AFFINITY_CAP * Math.tanh(x / AFFINITY_CAP);
+}
+
+// Fitted to the bounded raw range (affinity cap x weights): a one-signal
+// fit lands ~mid-70s, several agreeing signals reach the 90s, and heavy
+// libraries can't push every title to the ceiling.
+const MATCH_CENTER = 18;
+const MATCH_SCALE = 30;
+export function calibratedMatch(raw: number): number {
+  const pct = 50 + 49 * Math.tanh((raw - MATCH_CENTER) / MATCH_SCALE);
+  return Math.max(1, Math.min(99, Math.round(pct)));
 }

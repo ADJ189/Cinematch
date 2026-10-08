@@ -70,9 +70,12 @@ button {
 
 button:focus-visible,
 a:focus-visible,
+select:focus-visible,
+input:focus-visible,
 [tabindex]:focus-visible {
   outline: 2px solid var(--cyan);
   outline-offset: 2px;
+  box-shadow: var(--focus-ring);
 }
 
 a {
@@ -263,4 +266,69 @@ img {
   align-items: center;
   gap: 14px;
   margin-bottom: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .screen,
+  .stagger-in,
+  .reveal,
+  .quiz-body,
+  .quiz-option,
+  .result-card,
+  .featured,
+  .modal-card {
+    animation-name: fade-only !important;
+    transform: none !important;
+  }
+  .btn-primary {
+    animation: none;
+  }
+  .skeleton {
+    animation: none;
+  }
+  .result-card:hover,
+  .quiz-option:hover,
+  .btn:hover {
+    transform: none !important;
+  }
+}
+
+@keyframes fade-only {
+  from {
+    opacity: 0;
+  }
+  to {
+    opacity: 1;
+  }
+}
+
+/* Sections with a staggered cinematic entrance on first load. */
+.reveal {
+  opacity: 0;
+  animation: reveal-up var(--motion-cinematic) var(--ease-smooth) forwards;
+  animation-delay: calc(var(--reveal, 0) * 70ms + 60ms);
+}
+
+@keyframes reveal-up {
+  from {
+    opacity: 0;
+    transform: translateY(12px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+
+.state-message-actions {
+  display: flex;
+  gap: 10px;
+  flex-wrap: wrap;
+  justify-content: center;
+}
+
+.import-status {
+  min-height: 1.4em;
+  font-size: 13px;
+  color: var(--text-secondary);
 }

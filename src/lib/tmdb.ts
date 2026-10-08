@@ -54,7 +54,7 @@ const CACHE_MAX = 300; // bounds memory on a very long session; oldest entries d
  * timeout, a single slow request could leave the results screen hanging
  * indefinitely even though five other requests already came back fine.
  */
-async function tmdbFetch<T>(path: string, params: Record<string, string> = {}): Promise<T> {
+async function tmdbFetch<T>(path: string, params: Record<string, string> = {}, signal?: AbortSignal): Promise<T> {
   const url = new URL(`${API_BASE}${path}`);
   for (const [k, v] of Object.entries(params)) url.searchParams.set(k, v);
   if (!TOKEN && KEY) url.searchParams.set('api_key', KEY);
@@ -63,13 +63,19 @@ async function tmdbFetch<T>(path: string, params: Record<string, string> = {}): 
   const cached = responseCache.get(cacheKey);
   if (cached !== undefined) return cached as T;
 
-  const existing = inflight.get(cacheKey);
-  if (existing) return existing as Promise<T>;
-
-  const promise = tmdbFetchUncached<T>(cacheKey).finally(() => inflight.delete(cacheKey));
-  inflight.set(cacheKey, promise);
-
-  const result = await promise;
+  // A cancellable request (live search-as-you-type) must not be shared
+  // with other callers — aborting it would cancel theirs too — so it
+  // skips the in-flight dedupe, though its result still lands in the cache.
+  let result: T;
+  if (signal) {
+    result = await tmdbFetchUncached<T>(cacheKey, signal);
+  } else {
+    const existing = inflight.get(cacheKey);
+    if (existing) return existing as Promise<T>;
+    const promise = tmdbFetchUncached<T>(cacheKey).finally(() => inflight.delete(cacheKey));
+    inflight.set(cacheKey, promise);
+    result = await promise;
+  }
   if (responseCache.size >= CACHE_MAX) {
     const oldest = responseCache.keys().next().value;
     if (oldest !== undefined) responseCache.delete(oldest);
@@ -78,10 +84,13 @@ async function tmdbFetch<T>(path: string, params: Record<string, string> = {}): 
   return result;
 }
 
-async function tmdbFetchUncached<T>(url: string): Promise<T> {
+async function tmdbFetchUncached<T>(url: string, signal?: AbortSignal): Promise<T> {
   let lastErr: unknown;
   for (let attempt = 0; attempt < 2; attempt++) {
+    if (signal?.aborted) throw new DOMException('Aborted', 'AbortError');
     const controller = new AbortController();
+    const onOuterAbort = () => controller.abort();
+    signal?.addEventListener('abort', onOuterAbort, { once: true });
     const timer = setTimeout(() => controller.abort(), REQUEST_TIMEOUT_MS);
     try {
       const res = await fetch(url, {
@@ -89,10 +98,13 @@ async function tmdbFetchUncached<T>(url: string): Promise<T> {
         signal: controller.signal,
       });
       clearTimeout(timer);
+      signal?.removeEventListener('abort', onOuterAbort);
       if (!res.ok) throw new Error(`TMDB ${res.status}: ${url}`);
       return (await res.json()) as T;
     } catch (err) {
       clearTimeout(timer);
+      signal?.removeEventListener('abort', onOuterAbort);
+      if (signal?.aborted) throw new DOMException('Aborted', 'AbortError'); // never retry a cancelled request
       lastErr = err;
     }
   }
@@ -258,8 +270,12 @@ export async function discoverCandidates(
 ): Promise<CatalogItem[]> {
   // Sitcom is inherently a TV concept — force series-only regardless of the
   // quiz's format answer rather than wasting a request on "sitcom movies".
-  const wantMovies = filters.format !== 'series' && filters.contentType !== 'sitcom';
-  const wantSeries = filters.format !== 'movie';
+  // This also resolves the contradictory "movie + sitcom" combination: the
+  // content type wins over the format, so it becomes series-only instead of
+  // producing an empty job list (and a bogus "No matches").
+  const sitcomOnly = filters.contentType === 'sitcom';
+  const wantMovies = filters.format !== 'series' && !sitcomOnly;
+  const wantSeries = sitcomOnly || filters.format !== 'movie';
 
   const eraRange: Record<Era, [string, string] | null> = {
     classic: ['1900-01-01', '1999-12-31'],
@@ -270,7 +286,7 @@ export async function discoverCandidates(
 
   const extraGenreId = contentTypeGenreId(filters.contentType);
 
-  const jobs: Promise<CatalogItem[]>[] = [];
+  const jobs: Promise<DiscoverPagesResult>[] = [];
 
   if (wantMovies) {
     const params: Record<string, string> = {
@@ -317,7 +333,26 @@ export async function discoverCandidates(
   }
 
   const results = await Promise.all(jobs);
-  return results.flat();
+  const failed = results.reduce((n, r) => n + r.failedPages, 0);
+  const total = results.reduce((n, r) => n + r.totalPages, 0);
+  // Every page failing is an outage (network/auth/rate limit), not "no
+  // matches" — surface it so the UI can offer a retry instead of lying.
+  if (total > 0 && failed === total) throw new TmdbUnavailableError();
+  return results.flatMap((r) => r.items);
+}
+
+/** Thrown when every TMDB request for a discovery pass failed. */
+export class TmdbUnavailableError extends Error {
+  constructor() {
+    super('TMDB is unreachable right now.');
+    this.name = 'TmdbUnavailableError';
+  }
+}
+
+interface DiscoverPagesResult {
+  items: CatalogItem[];
+  failedPages: number;
+  totalPages: number;
 }
 
 async function fetchDiscoverPages(
@@ -325,12 +360,15 @@ async function fetchDiscoverPages(
   params: Record<string, string>,
   tmdbType: 'movie' | 'tv',
   pageOffset = 0
-): Promise<CatalogItem[]> {
+): Promise<DiscoverPagesResult> {
+  const pageNumbers = [1, 2, 3];
+  let failedPages = 0;
   const pages = await Promise.all(
-    [1, 2, 3].map((page) =>
-      tmdbFetch<{ results: TmdbRawResult[] }>(path, { ...params, page: String(page + pageOffset) }).catch(
-        () => ({ results: [] })
-      )
+    pageNumbers.map((page) =>
+      tmdbFetch<{ results: TmdbRawResult[] }>(path, { ...params, page: String(page + pageOffset) }).catch(() => {
+        failedPages++;
+        return { results: [] as TmdbRawResult[] };
+      })
     )
   );
   const items: CatalogItem[] = [];
@@ -340,19 +378,78 @@ async function fetchDiscoverPages(
       if (item) items.push(item);
     }
   }
-  return items;
+  return { items, failedPages, totalPages: pageNumbers.length };
 }
 
 /** Used by the rating step to resolve a small, well-known seed list to live posters/ids. */
 export async function searchTitle(
   title: string,
-  tmdbType: 'movie' | 'tv'
+  tmdbType: 'movie' | 'tv',
+  year?: number
 ): Promise<{ id: number; posterPath: string | null } | null> {
   const path = tmdbType === 'movie' ? '/search/movie' : '/search/tv';
-  const data = await tmdbFetch<{ results: TmdbRawResult[] }>(path, { query: title });
-  const first = data.results[0];
+  const params: Record<string, string> = { query: title };
+  if (year) params[tmdbType === 'movie' ? 'year' : 'first_air_date_year'] = String(year);
+  const data = await tmdbFetch<{ results: TmdbRawResult[] }>(path, params);
+  // With a year supplied, prefer a result whose date actually matches so a
+  // remake/namesake doesn't win just by being listed first.
+  const dated = (r: TmdbRawResult) => Number((r.release_date ?? r.first_air_date ?? '').slice(0, 4));
+  const first = (year ? data.results.find((r) => dated(r) === year) : undefined) ?? data.results[0];
   if (!first) return null;
   return { id: first.id, posterPath: first.poster_path };
+}
+
+/**
+ * Resolves one title (+ release year) to a full CatalogItem — used by the
+ * Letterboxd import, where title-only matching picks the wrong remake.
+ * Tries the requested type first, and when the year is known only accepts
+ * a result whose date is within a year of it (exports and TMDB sometimes
+ * disagree by one year across regional release dates).
+ */
+export async function findCatalogItem(title: string, year: number, signal?: AbortSignal): Promise<CatalogItem | null> {
+  const search = async (filterYear?: number): Promise<CatalogItem[]> => {
+    const params: Record<string, string> = { query: title, include_adult: 'false' };
+    if (filterYear) params.year = String(filterYear);
+    const data = await tmdbFetch<{ results: TmdbRawResult[] }>('/search/movie', params, signal);
+    // The whole page (up to 20), not just the first few: for a title with
+    // many namesakes the right one can sit well down the relevance order.
+    return data.results.map((raw) => toCatalogItem(raw, 'movie')).filter((item): item is CatalogItem => item !== null);
+  };
+
+  const closest = (items: CatalogItem[]): CatalogItem | null => {
+    let best: CatalogItem | null = null;
+    let bestDiff = Infinity;
+    for (const item of items) {
+      const diff = Math.abs(item.year - year);
+      if (diff <= 1 && diff < bestDiff) {
+        best = item;
+        bestDiff = diff;
+      }
+    }
+    return best;
+  };
+
+  if (!year) return (await search())[0] ?? null;
+
+  // 1. Ask TMDB to narrow to the stated year — this surfaces an exact
+  //    title+year match even among many namesakes.
+  const exact = (await search(year)).find((i) => i.year === year);
+  if (exact) return exact;
+
+  // 2. Unfiltered, for a film TMDB dates a year off from Letterboxd.
+  const loose = closest(await search());
+  if (loose) return loose;
+
+  // 3. Last resort: the adjacent years, filtered, so a namesake-heavy
+  //    title that is off by one is still found. Closest year wins; ties
+  //    keep the earlier-year-first order.
+  //    One search failing must not discard the other's result.
+  const settled = await Promise.allSettled([search(year - 1), search(year + 1)]);
+  const found = settled.flatMap((r) => (r.status === 'fulfilled' ? r.value : []));
+  const failure = settled.find((r): r is PromiseRejectedResult => r.status === 'rejected');
+  // Both failed: surface the error. One failed: use what the other found.
+  if (failure && settled.every((r) => r.status === 'rejected')) throw failure.reason;
+  return closest(found);
 }
 
 interface TmdbMultiSearchRaw extends TmdbRawResult {
@@ -368,13 +465,14 @@ interface TmdbMultiSearchRaw extends TmdbRawResult {
  * still surface a title the user is specifically looking for even if
  * it's obscure.
  */
-export async function searchMulti(query: string): Promise<CatalogItem[]> {
+export async function searchMulti(query: string, signal?: AbortSignal): Promise<CatalogItem[]> {
   const trimmed = query.trim();
   if (!trimmed) return [];
-  const data = await tmdbFetch<{ results: TmdbMultiSearchRaw[] }>('/search/multi', {
-    query: trimmed,
-    include_adult: 'false',
-  });
+  const data = await tmdbFetch<{ results: TmdbMultiSearchRaw[] }>(
+    '/search/multi',
+    { query: trimmed, include_adult: 'false' },
+    signal
+  );
   const items: CatalogItem[] = [];
   for (const raw of data.results) {
     if (raw.media_type !== 'movie' && raw.media_type !== 'tv') continue;
@@ -396,10 +494,18 @@ export async function searchMulti(query: string): Promise<CatalogItem[]> {
  * Deduped, with the source title itself excluded.
  */
 export async function getSimilarTitles(id: number, tmdbType: 'movie' | 'tv'): Promise<CatalogItem[]> {
+  let failures = 0;
+  const soft = () => {
+    failures++;
+    return { results: [] as TmdbRawResult[] };
+  };
   const [recs, similar] = await Promise.all([
-    tmdbFetch<{ results: TmdbRawResult[] }>(`/${tmdbType}/${id}/recommendations`, {}).catch(() => ({ results: [] })),
-    tmdbFetch<{ results: TmdbRawResult[] }>(`/${tmdbType}/${id}/similar`, {}).catch(() => ({ results: [] })),
+    tmdbFetch<{ results: TmdbRawResult[] }>(`/${tmdbType}/${id}/recommendations`, {}).catch(soft),
+    tmdbFetch<{ results: TmdbRawResult[] }>(`/${tmdbType}/${id}/similar`, {}).catch(soft),
   ]);
+  // Both sources failing is an outage, not "TMDB has nothing similar" —
+  // callers can tell the two apart and offer a retry for the former.
+  if (failures === 2) throw new TmdbUnavailableError();
 
   const seen = new Set<number>([id]);
   const items: CatalogItem[] = [];
@@ -420,6 +526,8 @@ export interface WatchProvider {
 
 export interface WatchProviders {
   region: string;
+  /** Set when the requested region had no data and `region` is a fallback. */
+  fallbackFrom?: string;
   link: string | null;
   stream: WatchProvider[];
   rent: WatchProvider[];
@@ -462,6 +570,9 @@ export async function getWatchProviders(id: number, tmdbType: 'movie' | 'tv'): P
       (arr ?? []).map((p) => ({ name: p.provider_name, logoPath: p.logo_path }));
     return {
       region: data.results[region] ? region : 'US',
+      // Set when the chosen region had no entry and we fell back to US, so
+      // the UI can say so instead of silently showing another market.
+      fallbackFrom: data.results[region] ? undefined : region,
       link: entry.link ?? null,
       stream: toList(entry.flatrate),
       rent: toList(entry.rent),
@@ -494,13 +605,14 @@ interface TmdbPersonSearchRaw {
  * person search want different follow-up actions (similar titles vs. a
  * filmography), so the search screen treats them as parallel result
  * lists rather than one merged, type-ambiguous list. */
-export async function searchPeople(query: string): Promise<PersonSummary[]> {
+export async function searchPeople(query: string, signal?: AbortSignal): Promise<PersonSummary[]> {
   const trimmed = query.trim();
   if (!trimmed) return [];
-  const data = await tmdbFetch<{ results: TmdbPersonSearchRaw[] }>('/search/person', {
-    query: trimmed,
-    include_adult: 'false',
-  });
+  const data = await tmdbFetch<{ results: TmdbPersonSearchRaw[] }>(
+    '/search/person',
+    { query: trimmed, include_adult: 'false' },
+    signal
+  );
   return data.results
     .filter((p) => p.known_for_department) // filters out near-empty/junk entries
     .map((p) => ({ id: p.id, name: p.name, profilePath: p.profile_path, knownForDepartment: p.known_for_department }));

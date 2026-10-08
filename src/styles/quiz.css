@@ -113,3 +113,97 @@
 .quiz-back {
   align-self: center;
 }
+
+/* Cinematic question transitions: old question slides out left, the next
+   enters from the right (reverse for Back); options stagger in. */
+.quiz-frame {
+  width: 100%;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 32px;
+}
+
+.quiz-dots {
+  display: flex;
+  gap: 8px;
+}
+
+.quiz-dot {
+  width: 28px;
+  height: 6px;
+  border-radius: var(--radius-pill);
+  background: var(--surface-hover);
+  transition: background var(--dur-med) var(--ease-smooth), transform var(--dur-med) var(--ease-smooth);
+}
+
+.quiz-dot.done {
+  background: var(--violet-dim);
+}
+
+.quiz-dot.current {
+  background: var(--gradient-match);
+  transform: scaleY(1.4);
+}
+
+.quiz-body {
+  animation: none;
+}
+
+.quiz-body.enter-forward {
+  animation: q-in-right 380ms var(--ease-smooth);
+}
+.quiz-body.enter-back {
+  animation: q-in-left 380ms var(--ease-smooth);
+}
+.quiz-body.enter-initial {
+  animation: q-in-up 420ms var(--ease-smooth);
+}
+.quiz-body.exit-forward {
+  animation: q-out-left 180ms ease-in forwards;
+}
+.quiz-body.exit-back {
+  animation: q-out-right 180ms ease-in forwards;
+}
+
+@keyframes q-in-right {
+  from { opacity: 0; transform: translateX(28px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes q-in-left {
+  from { opacity: 0; transform: translateX(-28px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes q-in-up {
+  from { opacity: 0; transform: translateY(12px); }
+  to { opacity: 1; transform: none; }
+}
+@keyframes q-out-left {
+  to { opacity: 0; transform: translateX(-24px); }
+}
+@keyframes q-out-right {
+  to { opacity: 0; transform: translateX(24px); }
+}
+
+.quiz-option {
+  opacity: 0;
+  animation: option-in 350ms var(--ease-smooth) forwards;
+  animation-delay: calc(var(--i, 0) * 40ms + 80ms);
+}
+
+@keyframes option-in {
+  from { opacity: 0; transform: translateY(10px); }
+  to { opacity: 1; transform: none; }
+}
+
+.quiz-option.confirm {
+  animation: option-confirm 220ms var(--ease-spring);
+}
+
+@keyframes option-confirm {
+  50% { transform: scale(1.03); box-shadow: var(--glow-violet); }
+}
+
+.quiz-option.selected .quiz-option-icon {
+  transform: translateX(3px);
+}

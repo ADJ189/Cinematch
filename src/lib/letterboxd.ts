@@ -7,7 +7,11 @@
 export interface LetterboxdRow {
   title: string;
   year: number;
-  rating: number; // 0.5-5 stars, converted to our 1-5 scale on import
+  /** 1-5, rounded — what the 5-star UI shows. */
+  rating: number;
+  /** The exact 0.5-5 value from the export; half-star precision is kept
+   * so a 3.5 and a 4 don't collapse into the same taste signal. */
+  stars: number;
 }
 
 export function parseLetterboxdCsv(csvText: string): LetterboxdRow[] {
@@ -34,6 +38,7 @@ export function parseLetterboxdCsv(csvText: string): LetterboxdRow[] {
       title,
       year: yearIdx !== -1 ? Number(cols[yearIdx]) || 0 : 0,
       rating: Math.max(1, Math.min(5, Math.round(stars))),
+      stars: Math.max(0.5, Math.min(5, stars)),
     });
   }
   return rows;

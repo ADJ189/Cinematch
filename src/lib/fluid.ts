@@ -213,9 +213,18 @@ export class FluidSim {
   }
 
   private last = performance.now();
+  private visible = true;
+  private observer: IntersectionObserver | null = null;
   private loop() {
+    // Stop simulating while the canvas is scrolled/covered out of view.
+    if (typeof IntersectionObserver !== 'undefined') {
+      this.observer = new IntersectionObserver(([entry]) => {
+        this.visible = entry?.isIntersecting ?? true;
+      });
+      this.observer.observe(this.canvas);
+    }
     const tick = (now: number) => {
-      if (!document.hidden) {
+      if (!document.hidden && this.visible) {
         const dt = Math.min(0.033, (now - this.last) / 1000);
         this.last = now;
         this.autoSwirl(dt);
@@ -231,5 +240,6 @@ export class FluidSim {
 
   destroy() {
     cancelAnimationFrame(this.raf);
+    this.observer?.disconnect();
   }
 }

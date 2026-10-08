@@ -41,6 +41,29 @@
   --dur-med: 320ms;
   --dur-slow: 560ms;
 
+  /* Elevation, glow, focus (design-system tokens) */
+  --shadow-card: 0 1px 2px rgba(0, 0, 0, 0.2), 0 8px 24px rgba(0, 0, 0, 0.18);
+  --shadow-elevated: 0 24px 60px rgba(0, 0, 0, 0.45);
+  --glow-violet: 0 0 0 1px var(--violet), 0 10px 28px rgba(124, 92, 240, 0.28);
+  --glow-cyan: 0 0 0 1px var(--cyan), 0 10px 28px rgba(34, 211, 238, 0.2);
+  --focus-ring: 0 0 0 3px color-mix(in srgb, var(--cyan) 55%, transparent);
+  --surface-glass: color-mix(in srgb, var(--bg-0) 62%, transparent);
+
+  /* Motion levels: instant < micro < component < cinematic (use the last
+     sparingly — hero, result reveal, shared poster moves). */
+  --motion-quick: 140ms;
+  --motion-standard: 320ms;
+  --motion-cinematic: 640ms;
+
+  /* Spacing scale */
+  --space-1: 4px;
+  --space-2: 8px;
+  --space-3: 12px;
+  --space-4: 16px;
+  --space-5: 24px;
+  --space-6: 32px;
+  --space-7: 48px;
+
   /* Layout */
   --radius-sm: 8px;
   --radius-md: 14px;
@@ -80,12 +103,21 @@
   --cyan: #0b7d8f;
   --pink: #c22a6e;
   --amber: #b2530f;
+
+  --shadow-card: 0 1px 2px rgba(60, 40, 10, 0.08), 0 8px 24px rgba(60, 40, 10, 0.1);
+  --shadow-elevated: 0 24px 60px rgba(60, 40, 10, 0.25);
 }
 
+/* Reduced motion is semantic, not just "make it 1ms": big movement (drift,
+   scale, slide, parallax) is removed outright, while opacity and focus
+   feedback stay so state changes remain obvious. */
 @media (prefers-reduced-motion: reduce) {
   :root {
-    --dur-fast: 1ms;
-    --dur-med: 1ms;
-    --dur-slow: 1ms;
+    --dur-fast: 80ms;
+    --dur-med: 120ms;
+    --dur-slow: 160ms;
+    --motion-quick: 80ms;
+    --motion-standard: 120ms;
+    --motion-cinematic: 160ms;
   }
 }

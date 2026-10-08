@@ -14,7 +14,7 @@
 
 import { el } from './dom';
 import { getWatchProviders, providerLogoUrl, type WatchProviders } from './tmdb';
-import { getRegionOverride, REGIONS, setRegion } from './region';
+import { getRegionOverride, REGIONS, regionName, setRegion } from './region';
 
 /** Mounts the whole streaming-availability block (loading state, then
  * provider logos + region selector) into `host`, fetching for the
@@ -101,6 +101,13 @@ export function buildProvidersRow(providers: WatchProviders | null): HTMLElement
   addRow('Rent', providers.rent);
   addRow('Buy', providers.buy);
   return el('div', { class: 'providers-block' }, [
+    ...(providers.fallbackFrom
+      ? [
+          el('p', { class: 'providers-note providers-fallback' }, [
+            `Nothing listed for ${regionName(providers.fallbackFrom)} — showing ${regionName(providers.region)} availability instead.`,
+          ]),
+        ]
+      : []),
     ...rows,
     providers.link
       ? el('a', { class: 'providers-link', href: providers.link, target: '_blank', rel: 'noopener' }, [
