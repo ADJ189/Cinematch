@@ -160,83 +160,107 @@ export function renderRating(root: HTMLElement): () => void {
   const IMPORT_CAP = 400; // most recent rows; keeps TMDB lookups bounded
   const IMPORT_CONCURRENCY = 5;
 
+  // Imports run strictly one at a time, in the order the files were picked.
+  // Each import mutates shared state (session ratings, profile, card stars,
+  // libraryCount); if two ran concurrently the slower, older file could finish
+  // last and overwrite overlapping ratings from the newer one. Chaining them
+  // keeps the last-selected file authoritative while still letting a finished
+  // import be updated by a later one.
+  let importQueue: Promise<void> = Promise.resolve();
+  let pendingImports = 0;
+
   function onImportFile(e: Event) {
     const input = e.target as HTMLInputElement;
     const file = input.files?.[0];
     if (!file) return;
     input.value = '';
 
-    void file.text().then(async (text) => {
-      const rows = parseLetterboxdCsv(text).slice(-IMPORT_CAP);
-      if (rows.length === 0) {
-        importStatus.textContent = 'That file didn\u2019t look like a Letterboxd ratings.csv \u2014 export it from Settings \u2192 Data.';
-        return;
-      }
+    if (pendingImports > 0) {
+      importStatus.textContent = 'Another import is still running \u2014 yours is queued.';
+    }
+    pendingImports++;
+    importQueue = importQueue
+      .then(() => (cancelled ? undefined : runImport(file)))
+      .catch(() => {
+        if (!cancelled) importStatus.textContent = 'Import failed \u2014 please try again.';
+      })
+      .finally(() => {
+        pendingImports--;
+      });
+  }
 
-      const matched: { item: CatalogItem; stars: number }[] = [];
-      let unmatched = 0;
-      let done = 0;
+  async function runImport(file: File): Promise<void> {
+    const text = await file.text();
+    if (cancelled) return;
+    const rows = parseLetterboxdCsv(text).slice(-IMPORT_CAP);
+    if (rows.length === 0) {
+      importStatus.textContent = 'That file didn\u2019t look like a Letterboxd ratings.csv \u2014 export it from Settings \u2192 Data.';
+      return;
+    }
 
-      // Without TMDB we can only match against the cards on screen.
-      if (!isTmdbConfigured) {
-        const imported: Record<number, RatingValue> = {};
-        for (const row of rows) {
-          const seed = seeds.find((s) => s.title.toLowerCase() === row.title.toLowerCase() && (!row.year || s.year === row.year));
-          if (!seed) {
-            unmatched++;
-            continue;
-          }
-          // A rating given in the app beats an imported one. A session rating
-          // that came from an earlier import does not, so a re-import can
-          // update it; in-app ratings are always recorded in the profile.
-          if (hasDeliberateRating(seed.id)) continue;
-          imported[seed.id] = row.rating as RatingValue;
-        }
-        store.importRatings(imported);
-        paintImported(imported);
-        importStatus.textContent = `Matched ${Object.keys(imported).length} of ${rows.length}. Add a TMDB key to match the rest of your library.`;
-        syncFromStore();
-        return;
-      }
+    const matched: { item: CatalogItem; stars: number }[] = [];
+    let unmatched = 0;
+    let done = 0;
 
-      let next = 0;
-      const worker = async () => {
-        while (next < rows.length && !cancelled) {
-          const row = rows[next++]!;
-          try {
-            const item = await findCatalogItem(row.title, row.year);
-            if (item) matched.push({ item, stars: row.stars });
-            else unmatched++;
-          } catch {
-            unmatched++;
-          }
-          done++;
-          importStatus.textContent = `Matching your library\u2026 ${done} of ${rows.length}`;
-        }
-      };
-      await Promise.all(Array.from({ length: IMPORT_CONCURRENCY }, worker));
-      if (cancelled) return;
-
-      // Whole library, persisted and de-duplicated by TMDB id: all of it
-      // calibrates the engine, not only titles that happen to be on a card.
-      const keptIds = recordImportedRatings(matched);
-
-      // Titles that are also visible as seed cards light up their stars.
+    // Without TMDB we can only match against the cards on screen.
+    if (!isTmdbConfigured) {
       const imported: Record<number, RatingValue> = {};
-      for (const m of matched) {
-        // Only ratings given in the app are protected; a session rating left
-        // by an earlier import is replaced by this file's value.
-        if (keptIds.has(m.item.id)) continue;
-        if (seeds.some((s) => s.id === m.item.id)) imported[m.item.id] = Math.max(1, Math.min(5, Math.round(m.stars))) as RatingValue;
+      for (const row of rows) {
+        const seed = seeds.find((s) => s.title.toLowerCase() === row.title.toLowerCase() && (!row.year || s.year === row.year));
+        if (!seed) {
+          unmatched++;
+          continue;
+        }
+        // A rating given in the app beats an imported one. A session rating
+        // that came from an earlier import does not, so a re-import can
+        // update it; in-app ratings are always recorded in the profile.
+        if (hasDeliberateRating(seed.id)) continue;
+        imported[seed.id] = row.rating as RatingValue;
       }
       store.importRatings(imported);
       paintImported(imported);
-
-      // The library itself counts toward the "rate a few" requirement.
-      libraryCount = matched.length;
-      importStatus.textContent = `Imported ${rows.length} films \u00b7 matched ${matched.length} \u00b7 couldn\u2019t identify ${unmatched}.`;
+      importStatus.textContent = `Matched ${Object.keys(imported).length} of ${rows.length}. Add a TMDB key to match the rest of your library.`;
       syncFromStore();
-    });
+      return;
+    }
+
+    let next = 0;
+    const worker = async () => {
+      while (next < rows.length && !cancelled) {
+        const row = rows[next++]!;
+        try {
+          const item = await findCatalogItem(row.title, row.year);
+          if (item) matched.push({ item, stars: row.stars });
+          else unmatched++;
+        } catch {
+          unmatched++;
+        }
+        done++;
+        importStatus.textContent = `Matching your library\u2026 ${done} of ${rows.length}`;
+      }
+    };
+    await Promise.all(Array.from({ length: IMPORT_CONCURRENCY }, worker));
+    if (cancelled) return;
+
+    // Whole library, persisted and de-duplicated by TMDB id: all of it
+    // calibrates the engine, not only titles that happen to be on a card.
+    const keptIds = recordImportedRatings(matched);
+
+    // Titles that are also visible as seed cards light up their stars.
+    const imported: Record<number, RatingValue> = {};
+    for (const m of matched) {
+      // Only ratings given in the app are protected; a session rating left
+      // by an earlier import is replaced by this file's value.
+      if (keptIds.has(m.item.id)) continue;
+      if (seeds.some((s) => s.id === m.item.id)) imported[m.item.id] = Math.max(1, Math.min(5, Math.round(m.stars))) as RatingValue;
+    }
+    store.importRatings(imported);
+    paintImported(imported);
+
+    // The library itself counts toward the "rate a few" requirement.
+    libraryCount = matched.length;
+    importStatus.textContent = `Imported ${rows.length} films \u00b7 matched ${matched.length} \u00b7 couldn\u2019t identify ${unmatched}.`;
+    syncFromStore();
   }
 
   function paintImported(imported: Record<number, RatingValue>) {
