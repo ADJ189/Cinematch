@@ -33,7 +33,7 @@
 }
 
 .rating-title {
-  font-size: 12px;
+  font-size: 0.75rem;
   color: var(--text-secondary);
   line-height: 1.3;
   min-height: 2.6em;
@@ -45,7 +45,7 @@
 }
 
 .star {
-  font-size: 18px;
+  font-size: 1.125rem;
   color: var(--border-strong);
   transition: color var(--dur-fast), transform var(--dur-fast) var(--ease-spring);
 }
@@ -89,10 +89,10 @@
 
 .rating-count {
   font-family: var(--font-mono);
-  font-size: 13px;
+  font-size: 0.8125rem;
   color: var(--text-muted);
 }
 
 .star-row-sm .star {
-  font-size: 14px;
+  font-size: 0.875rem;
 }

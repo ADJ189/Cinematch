@@ -121,7 +121,7 @@ img {
   padding: 14px 28px;
   border-radius: var(--radius-pill);
   font-weight: 600;
-  font-size: 15px;
+  font-size: 0.9375rem;
   transition: transform var(--dur-fast) var(--ease-spring), box-shadow var(--dur-fast), background var(--dur-fast), border-color var(--dur-fast);
 }
 
@@ -268,29 +268,27 @@ img {
   margin-bottom: 8px;
 }
 
-@media (prefers-reduced-motion: reduce) {
-  .screen,
-  .stagger-in,
-  .reveal,
-  .quiz-body,
-  .quiz-option,
-  .result-card,
-  .featured,
-  .modal-card {
-    animation-name: fade-only !important;
-    transform: none !important;
-  }
-  .btn-primary {
-    animation: none;
-  }
-  .skeleton {
-    animation: none;
-  }
-  .result-card:hover,
-  .quiz-option:hover,
-  .btn:hover {
-    transform: none !important;
-  }
+/* Motion "Off" (explicit, or System under an OS reduced-motion request):
+   large/continuous movement is removed; opacity and focus feedback stay. */
+:root[data-motion='off'] .screen,
+:root[data-motion='off'] .stagger-in,
+:root[data-motion='off'] .reveal,
+:root[data-motion='off'] .quiz-body,
+:root[data-motion='off'] .quiz-option,
+:root[data-motion='off'] .result-card,
+:root[data-motion='off'] .featured,
+:root[data-motion='off'] .modal-card {
+  animation-name: fade-only !important;
+  transform: none !important;
+}
+:root[data-motion='off'] .btn-primary,
+:root[data-motion='off'] .skeleton {
+  animation: none;
+}
+:root[data-motion='off'] .result-card:hover,
+:root[data-motion='off'] .quiz-option:hover,
+:root[data-motion='off'] .btn:hover {
+  transform: none !important;
 }
 
 @keyframes fade-only {
@@ -329,6 +327,6 @@ img {
 
 .import-status {
   min-height: 1.4em;
-  font-size: 13px;
+  font-size: 0.8125rem;
   color: var(--text-secondary);
 }

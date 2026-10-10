@@ -55,7 +55,7 @@
 
 .toolbar-btn {
   padding: 10px 18px;
-  font-size: 14px;
+  font-size: 0.875rem;
   white-space: nowrap;
 }
 
@@ -70,7 +70,7 @@
 
 .mode-btn {
   padding: 8px 18px;
-  font-size: 13px;
+  font-size: 0.8125rem;
   font-weight: 600;
   border-radius: var(--radius-pill);
   color: var(--text-secondary);
@@ -141,7 +141,7 @@
 
 .poster-fallback {
   font-family: var(--font-display);
-  font-size: 40px;
+  font-size: 2.5rem;
   color: var(--text-muted);
 }
 
@@ -149,7 +149,7 @@
   position: absolute;
   inset: auto 0 0 0;
   padding: 8px 10px;
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 600;
   color: #fff;
   background: linear-gradient(to top, rgba(7, 5, 15, 0.85), transparent);
@@ -191,7 +191,7 @@
 }
 
 .hover-preview-overview {
-  font-size: 12px;
+  font-size: 0.75rem;
   line-height: 1.45;
   color: #f4f2fb;
 }
@@ -202,14 +202,14 @@
   flex-wrap: wrap;
   gap: 2px;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 0.6875rem;
   color: #e2ddf5;
 }
 
 .hover-preview-cta {
   display: inline-flex;
   align-items: center;
-  font-size: 11px;
+  font-size: 0.6875rem;
   font-weight: 600;
   color: var(--cyan);
 }
@@ -270,7 +270,7 @@
 
 .result-match {
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 0.75rem;
   font-weight: 500;
   color: var(--cyan);
   animation: match-pop var(--dur-med) var(--ease-spring);
@@ -288,7 +288,7 @@
 }
 
 .result-title {
-  font-size: 15px;
+  font-size: 0.9375rem;
   line-height: 1.3;
   cursor: pointer;
   transition: color var(--dur-fast);
@@ -303,7 +303,7 @@
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 12px;
+  font-size: 0.75rem;
   padding: 2px 8px;
   border-radius: var(--radius-pill);
   background: var(--surface-hover);
@@ -324,7 +324,7 @@
 }
 
 .result-reasons li {
-  font-size: 12px;
+  font-size: 0.75rem;
   color: var(--text-secondary);
   line-height: 1.4;
 }
@@ -374,7 +374,7 @@
 .results-note {
   max-width: 620px;
   padding: 10px 16px;
-  font-size: 13px;
+  font-size: 0.8125rem;
   color: var(--text-secondary);
   background: var(--surface);
   border: 1px solid var(--border);
@@ -417,7 +417,7 @@
   display: flex;
   align-items: center;
   gap: 10px;
-  font-size: 14px;
+  font-size: 0.875rem;
   color: var(--text-muted);
   transition: color var(--dur-med) var(--ease-smooth);
 }
@@ -495,12 +495,12 @@
 }
 
 .featured-title {
-  font-size: clamp(24px, 4vw, 36px);
+  font-size: clamp(1.5rem, 4vw, 2.25rem);
   line-height: 1.1;
 }
 
 .featured-overview {
-  font-size: 15px;
+  font-size: 0.9375rem;
   max-width: 60ch;
 }
 
@@ -538,10 +538,10 @@
 }
 
 .shelf-head h3 {
-  font-size: 20px;
+  font-size: 1.25rem;
 }
 .shelf-head p {
-  font-size: 13px;
+  font-size: 0.8125rem;
   color: var(--text-muted);
 }
 
@@ -560,7 +560,7 @@
   align-items: baseline;
   gap: 8px;
   font-family: var(--font-mono);
-  font-size: 12px;
+  font-size: 0.75rem;
 }
 
 .match-meter-pct {
@@ -595,7 +595,7 @@
   height: 8px;
 }
 .match-meter-lg .match-meter-head {
-  font-size: 14px;
+  font-size: 0.875rem;
 }
 
 @keyframes meter-grow {
@@ -613,7 +613,7 @@
 }
 
 .chip {
-  font-size: 11px;
+  font-size: 0.6875rem;
   font-weight: 500;
   text-transform: capitalize;
   padding: 3px 10px;
@@ -662,7 +662,7 @@
   top: 8px;
   z-index: 1;
   font-family: var(--font-mono);
-  font-size: 11px;
+  font-size: 0.6875rem;
   font-weight: 600;
   padding: 3px 8px;
   border-radius: var(--radius-pill);
