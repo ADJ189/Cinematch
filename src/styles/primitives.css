@@ -1,0 +1,221 @@
+/* Shared interaction primitives: buttons, chips, toast, view transitions,
+   density, and the soft-glass surface option. */
+
+:root {
+  /* Minimum interactive size — density never shrinks below this. */
+  --hit: 44px;
+}
+
+html {
+  font-size: calc(100% * var(--text-scale));
+}
+
+body {
+  line-height: var(--line-body);
+}
+
+h1, h2, h3 {
+  font-weight: var(--heading-weight);
+  letter-spacing: var(--heading-tracking);
+}
+
+p {
+  line-height: var(--line-body);
+}
+
+.screen {
+  padding: calc(clamp(20px, 5vw, 64px) * var(--density));
+}
+
+.btn-primary {
+  color: var(--on-accent);
+}
+
+.btn-primary:hover:not(:disabled) {
+  box-shadow: 0 0 0 4px color-mix(in srgb, var(--violet) 22%, transparent);
+}
+
+.btn-lg {
+  padding: 16px 32px;
+  font-size: 1rem;
+  min-height: var(--hit);
+}
+
+.btn-quiet {
+  color: var(--text-secondary);
+  background: transparent;
+  border: 1px solid transparent;
+  text-decoration: underline;
+  text-decoration-color: color-mix(in srgb, var(--text-secondary) 40%, transparent);
+  text-underline-offset: 4px;
+}
+
+.btn-quiet:hover:not(:disabled) {
+  color: var(--text-primary);
+  text-decoration-color: currentColor;
+}
+
+.btn-text,
+.btn-text-danger {
+  font-size: 0.8125rem;
+  font-weight: 500;
+  padding: 8px 10px;
+  min-height: 36px;
+  border-radius: var(--radius-sm);
+  color: var(--text-secondary);
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.btn-text:hover:not(:disabled) {
+  color: var(--text-primary);
+  background: var(--surface-hover);
+}
+
+.btn-text-danger {
+  color: var(--danger);
+}
+
+.btn-text-danger:hover:not(:disabled) {
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+}
+
+.btn-text:disabled,
+.btn-text-danger:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+.chip-btn {
+  cursor: pointer;
+  font-size: 0.8125rem;
+  padding: 8px 14px;
+  min-height: 36px;
+  text-transform: none;
+  transition: background var(--dur-fast), border-color var(--dur-fast), transform var(--dur-fast) var(--ease-spring);
+}
+
+.chip-btn:hover {
+  background: color-mix(in srgb, var(--violet) 24%, transparent);
+  border-color: var(--violet);
+}
+
+.chip-btn:active {
+  transform: scale(0.96);
+}
+
+/* Watchlist / rating confirmation micro-interactions */
+.watchlist-btn.pop svg {
+  animation: pop var(--dur-med) var(--ease-spring);
+}
+
+@keyframes pop {
+  0% { transform: scale(0.7); }
+  60% { transform: scale(1.25); }
+  100% { transform: scale(1); }
+}
+
+.rating-card.just-rated {
+  animation: card-confirm var(--dur-med) var(--ease-smooth);
+}
+
+@keyframes card-confirm {
+  0% { box-shadow: 0 0 0 0 color-mix(in srgb, var(--violet) 55%, transparent); }
+  100% { box-shadow: 0 0 0 10px transparent; }
+}
+
+/* ── Toast ─────────────────────────────────────────────────────────── */
+
+.toast-host {
+  position: fixed;
+  left: 50%;
+  bottom: calc(20px + env(safe-area-inset-bottom, 0px));
+  transform: translateX(-50%);
+  z-index: var(--z-toast);
+  display: flex;
+  justify-content: center;
+  width: min(92vw, 460px);
+  pointer-events: none;
+}
+
+.toast {
+  pointer-events: auto;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  padding: 12px 16px;
+  border-radius: var(--radius-md);
+  background: var(--bg-2);
+  color: var(--text-primary);
+  border: 1px solid var(--border-strong);
+  box-shadow: var(--shadow-lift, 0 10px 30px rgba(0, 0, 0, 0.35));
+  font-size: 0.875rem;
+  animation: toast-in var(--dur-med) var(--ease-spring);
+}
+
+.toast-action {
+  margin-left: auto;
+  font-weight: 600;
+  color: var(--violet);
+  padding: 6px 10px;
+  border-radius: var(--radius-sm);
+}
+
+.toast-action:hover {
+  background: var(--surface-hover);
+}
+
+@keyframes toast-in {
+  from { opacity: 0; transform: translateY(10px) scale(0.97); }
+  to { opacity: 1; transform: translateY(0) scale(1); }
+}
+
+/* ── Screen transition (View Transitions API, where supported) ─────── */
+
+::view-transition-old(root),
+::view-transition-new(root) {
+  animation-duration: var(--dur-med);
+  animation-timing-function: var(--ease-smooth);
+}
+
+:root[data-motion='off']::view-transition-group(*),
+:root[data-motion='off']::view-transition-old(*),
+:root[data-motion='off']::view-transition-new(*) {
+  animation: none !important;
+}
+
+#app.screen-loading {
+  opacity: 0.55;
+  pointer-events: none;
+  transition: opacity var(--dur-med) var(--ease-smooth);
+}
+
+/* ── Soft glass surface option ─────────────────────────────────────── */
+
+:root[data-surface='glass'] .result-card,
+:root[data-surface='glass'] .rating-card,
+:root[data-surface='glass'] .quiz-option,
+:root[data-surface='glass'] .welcome-back,
+:root[data-surface='glass'] .hero-sample {
+  background: color-mix(in srgb, var(--surface) 62%, transparent);
+  backdrop-filter: blur(12px) saturate(130%);
+  -webkit-backdrop-filter: blur(12px) saturate(130%);
+}
+
+:root[data-transparency='reduced'][data-surface='glass'] .result-card,
+:root[data-transparency='reduced'][data-surface='glass'] .rating-card,
+:root[data-transparency='reduced'][data-surface='glass'] .quiz-option,
+:root[data-transparency='reduced'][data-surface='glass'] .welcome-back,
+:root[data-transparency='reduced'][data-surface='glass'] .hero-sample {
+  background: var(--surface);
+}
+
+/* Touch targets: header icon buttons and stars keep a usable hit area. */
+@media (pointer: coarse) {
+  .theme-toggle,
+  .header-search-btn {
+    min-width: var(--hit);
+    min-height: var(--hit);
+  }
+}

@@ -2,9 +2,18 @@
   /* Fonts — Sora for display (a clean geometric grotesque that reads as
      professional/product-grade rather than the previous Bricolage
      Grotesque's quirkier, more editorial character), Inter for body copy. */
-  --font-display: 'Sora', ui-sans-serif, system-ui, sans-serif;
-  --font-body: 'Inter', ui-sans-serif, system-ui, sans-serif;
-  --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+  --font-display: 'Sora Variable', 'Sora', ui-sans-serif, system-ui, sans-serif;
+  --font-body: 'Inter Variable', 'Inter', ui-sans-serif, system-ui, sans-serif;
+  --font-mono: ui-monospace, 'SF Mono', 'Cascadia Mono', Menlo, Consolas, monospace;
+  --heading-weight: 600;
+  --heading-tracking: -0.01em;
+
+  /* Appearance-controlled scalars (see src/lib/appearance.ts). */
+  --text-scale: 1;
+  --line-body: 1.6;
+  --density: 1;
+  --poster-min: 200px;
+  --on-accent: #0a0714;
 
   /* Surfaces — dark (default) */
   --bg-0: #07050f;
@@ -71,6 +80,23 @@
   --radius-pill: 999px;
   --content-width: 1120px;
   --header-height: 60px;
+
+  /* Layer scale — background effects < content < header < popovers < dialogs < toasts. */
+  --z-bg: 0;
+  --z-content: 1;
+  --z-header: 40;
+  --z-popover: 60;
+  --z-modal: 100;
+  --z-toast: 200;
+
+  /* Semantic states shared by every control. */
+  --state-hover: color-mix(in srgb, var(--violet) 10%, var(--surface));
+  --state-selected: color-mix(in srgb, var(--violet) 18%, var(--surface));
+  --state-selected-border: var(--violet);
+  --state-warning: var(--amber);
+  --state-error: var(--danger);
+  --state-success: var(--success);
+  --scrim: color-mix(in srgb, var(--bg-0) 80%, transparent);
 }
 
 /* Light theme — toggled via data-theme="light" on <html>, persisted in
@@ -96,13 +122,16 @@
 
   --text-primary: #241d14;
   --text-secondary: #6b5f4d;
-  --text-muted: #96876d;
+  --text-muted: #7b6d54;
 
   --violet: #7c5cf0;
   --violet-dim: #6a45e6;
   --cyan: #0b7d8f;
   --pink: #c22a6e;
   --amber: #b2530f;
+  --danger: #c0392b;
+  --success: #15803d;
+  --on-accent: #ffffff;
 
   --shadow-card: 0 1px 2px rgba(60, 40, 10, 0.08), 0 8px 24px rgba(60, 40, 10, 0.1);
   --shadow-elevated: 0 24px 60px rgba(60, 40, 10, 0.25);
@@ -112,7 +141,7 @@
    scale, slide, parallax) is removed outright, while opacity and focus
    feedback stay so state changes remain obvious. */
 @media (prefers-reduced-motion: reduce) {
-  :root {
+  :root:not([data-motion]) {
     --dur-fast: 80ms;
     --dur-med: 120ms;
     --dur-slow: 160ms;
@@ -120,4 +149,105 @@
     --motion-standard: 120ms;
     --motion-cinematic: 160ms;
   }
+}
+
+/* ── Appearance modifiers (set as data-* attributes by appearance.ts) ─── */
+
+:root[data-density='compact'] {
+  --density: 0.8;
+}
+
+:root[data-width='compact'] {
+  --content-width: 920px;
+}
+
+:root[data-width='wide'] {
+  --content-width: 1320px;
+}
+
+:root[data-shape='sharp'] {
+  --radius-sm: 3px;
+  --radius-md: 5px;
+  --radius-lg: 8px;
+}
+
+:root[data-shape='rounded'] {
+  --radius-sm: 10px;
+  --radius-md: 18px;
+  --radius-lg: 30px;
+}
+
+:root[data-poster='small'] {
+  --poster-min: 150px;
+}
+
+:root[data-poster='large'] {
+  --poster-min: 250px;
+}
+
+/* The repeated :root raises specificity above the palette maps in
+   palettes.css (:root[data-palette][data-theme]) so these modifiers win
+   regardless of stylesheet order. */
+/* Custom accent: replaces the palette's primary accent only. Semantic
+   success / warning / error colors are never touched. */
+:root:root:root[data-accent='custom'] {
+  --violet: var(--user-accent);
+  --violet-dim: color-mix(in srgb, var(--user-accent) 78%, black);
+  --on-accent: var(--user-on-accent);
+}
+
+/* High contrast: stronger text, borders and selected states. Decorative
+   glow is NOT increased. */
+:root:root:root[data-contrast='high'] {
+  --text-secondary: color-mix(in srgb, var(--text-primary) 88%, var(--bg-0));
+  --text-muted: color-mix(in srgb, var(--text-primary) 72%, var(--bg-0));
+  --border: color-mix(in srgb, var(--text-primary) 38%, transparent);
+  --border-strong: color-mix(in srgb, var(--text-primary) 70%, transparent);
+  --state-selected: color-mix(in srgb, var(--violet) 30%, var(--surface));
+}
+
+/* Reduced transparency: solid surfaces everywhere, no backdrop blur. */
+:root[data-transparency='reduced'] .app-header,
+:root[data-transparency='reduced'] .modal-overlay,
+:root[data-transparency='reduced'] .rating-footer,
+:root[data-transparency='reduced'] .profile-popover,
+:root[data-transparency='reduced'] .appearance-panel,
+:root[data-transparency='reduced'] .poster-match-badge,
+:root[data-transparency='reduced'] .result-hover-preview,
+:root[data-transparency='reduced'] .watchlist-btn,
+:root[data-transparency='reduced'] .ap-scrim,
+:root[data-transparency='reduced'][data-surface='glass'] .result-card,
+:root[data-transparency='reduced'][data-surface='glass'] .rating-card,
+:root[data-transparency='reduced'][data-surface='glass'] .quiz-option,
+:root[data-transparency='reduced'][data-surface='glass'] .welcome-back,
+:root[data-transparency='reduced'][data-surface='glass'] .hero-sample {
+  backdrop-filter: none !important;
+  -webkit-backdrop-filter: none !important;
+}
+
+:root[data-transparency='reduced'] .app-header,
+:root[data-transparency='reduced'] .rating-footer {
+  background: var(--bg-0);
+}
+
+/* Motion profile. `data-motion` is the *effective* profile computed in
+   JS (system → subtle, or off when the OS asks for reduced motion). */
+:root[data-motion='subtle'] {
+  --dur-fast: 120ms;
+  --dur-med: 240ms;
+  --dur-slow: 360ms;
+  --motion-cinematic: 420ms;
+}
+
+:root[data-motion='full'] {
+  --motion-cinematic: 720ms;
+}
+
+:root[data-motion='off'] {
+  --dur-fast: 1ms;
+  --dur-med: 1ms;
+  --dur-slow: 1ms;
+  --motion-quick: 1ms;
+  --motion-standard: 1ms;
+  --motion-cinematic: 1ms;
 }

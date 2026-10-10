@@ -1,44 +1,24 @@
-// src/lib/theme.ts — light/dark mode, persisted, defaulting to system preference.
+// src/lib/theme.ts — compatibility facade. Light/dark/system now lives in
+// appearance.ts (the one module that touches `data-theme`); this file only
+// keeps the old import surface working.
 
-import { safeGet, safeSet } from './storage';
+import { effectiveMode, initAppearance, toggleQuickMode, updatePreferences } from './appearance';
 
 export type Theme = 'dark' | 'light';
 
-const STORAGE_KEY = 'cinematch-theme';
-
-function systemPrefersLight(): boolean {
-  try {
-    return window.matchMedia('(prefers-color-scheme: light)').matches;
-  } catch {
-    return false;
-  }
-}
-
 export function getTheme(): Theme {
-  const stored = safeGet(STORAGE_KEY);
-  if (stored === 'dark' || stored === 'light') return stored;
-  return systemPrefersLight() ? 'light' : 'dark';
-}
-
-export function applyTheme(theme: Theme): void {
-  document.documentElement.setAttribute('data-theme', theme);
-  document.documentElement.style.colorScheme = theme;
-  const meta = document.querySelector('meta[name="theme-color"]');
-  if (meta) meta.setAttribute('content', theme === 'light' ? '#f7f3ee' : '#0a0714');
+  return effectiveMode();
 }
 
 export function setTheme(theme: Theme): void {
-  safeSet(STORAGE_KEY, theme);
-  applyTheme(theme);
+  updatePreferences({ mode: theme }, { immediate: true });
 }
 
 export function toggleTheme(): Theme {
-  const next: Theme = getTheme() === 'dark' ? 'light' : 'dark';
-  setTheme(next);
-  return next;
+  return toggleQuickMode();
 }
 
 /** Call once at startup, before first paint of app content. */
 export function initTheme(): void {
-  applyTheme(getTheme());
+  initAppearance();
 }

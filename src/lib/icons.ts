@@ -33,6 +33,16 @@ export const ICON = {
   info: `<svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="10" cy="10" r="7.3" stroke="currentColor" stroke-width="1.5"/><path d="M10 9v5" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="10" cy="6.3" r="1" fill="currentColor"/></svg>`,
 
   metacritic: `<svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="1.5" y="1.5" width="17" height="17" rx="3.5" stroke="currentColor" stroke-width="1.4"/><text x="10" y="14" font-size="10" font-weight="700" text-anchor="middle" fill="currentColor" font-family="sans-serif">M</text></svg>`,
+
+  sliders: `<svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 5.5h7M14 5.5h3M3 14.5h3M10 14.5h7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="5.5" r="2" stroke="currentColor" stroke-width="1.6"/><circle cx="8" cy="14.5" r="2" stroke="currentColor" stroke-width="1.6"/></svg>`,
+
+  check: `<svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4.5 10.5l3.6 3.6 7.4-8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+
+  undo: `<svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M7.5 4.5 3.5 8.5l4 4M4 8.5h8a4 4 0 0 1 0 8H9" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+
+  redo: `<svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="m12.5 4.5 4 4-4 4M16 8.5H8a4 4 0 0 0 0 8h3" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round"/></svg>`,
+
+  dice: `<svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="3" y="3" width="14" height="14" rx="3.2" stroke="currentColor" stroke-width="1.5"/><circle cx="7.3" cy="7.3" r="1.1" fill="currentColor"/><circle cx="12.7" cy="12.7" r="1.1" fill="currentColor"/><circle cx="12.7" cy="7.3" r="1.1" fill="currentColor"/><circle cx="7.3" cy="12.7" r="1.1" fill="currentColor"/></svg>`,
 } as const;
 
 /** Wraps an icon string as an inline-flex span sized to `size` (px), so it

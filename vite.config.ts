@@ -10,7 +10,7 @@ export default defineConfig({
         // never ships to users who don't opt into it.
         manualChunks(id) {
           if (id.includes('src/lib/llm.ts')) return 'llm';
-          if (id.includes('src/lib/fluid.ts')) return 'fluid';
+          if (id.includes('src/lib/ambient.ts')) return 'ambient';
         },
       },
     },

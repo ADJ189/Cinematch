@@ -9,6 +9,7 @@
 // (comedy vs. drama vs. dark vs. feelgood) in the mix too.
 
 import { RATING_SEEDS, SEED_SIGNALS as STATIC_SEED_SIGNALS } from '../data/rating-seeds';
+import { keyOf } from './media-key';
 import { discoverCandidates, isTmdbConfigured } from './tmdb';
 import type { CatalogItem, Genre, RatingSeed } from './types';
 
@@ -18,7 +19,7 @@ const MIN_VOTE_COUNT = 500; // familiar, well-known titles calibrate taste bette
 
 export interface RatingPool {
   seeds: RatingSeed[];
-  signals: Record<number, string[]>;
+  signals: Record<string, string[]>;
 }
 
 export async function buildRatingPool(mood: Genre | undefined): Promise<RatingPool> {
@@ -42,16 +43,16 @@ export async function buildRatingPool(mood: Genre | undefined): Promise<RatingPo
       return { seeds: RATING_SEEDS, signals: STATIC_SEED_SIGNALS };
     }
 
-    const genreIds = new Set(topGenre.map((c) => c.id));
-    const generalPicks = RATING_SEEDS.filter((s) => !genreIds.has(s.id)).slice(0, generalCount);
+    const genreKeys = new Set(topGenre.map(keyOf));
+    const generalPicks = RATING_SEEDS.filter((s) => !genreKeys.has(keyOf(s))).slice(0, generalCount);
 
     const seeds: RatingSeed[] = shuffle([
       ...topGenre.map(toRatingSeed),
       ...generalPicks,
     ]);
 
-    const signals: Record<number, string[]> = { ...STATIC_SEED_SIGNALS };
-    for (const c of topGenre) signals[c.id] = [...c.genres, ...c.vibe];
+    const signals: Record<string, string[]> = { ...STATIC_SEED_SIGNALS };
+    for (const c of topGenre) signals[keyOf(c)] = [...c.genres, ...c.vibe];
 
     return { seeds, signals };
   } catch {
@@ -69,17 +70,17 @@ function toRatingSeed(c: CatalogItem): RatingSeed {
 function pickDiverse(candidates: CatalogItem[], count: number): CatalogItem[] {
   const sorted = [...candidates].sort((a, b) => b.voteCount - a.voteCount);
   const out: CatalogItem[] = [];
-  const seenIds = new Set<number>();
+  const seenIds = new Set<string>();
   const vibeCounts = new Map<string, number>();
 
   for (const c of sorted) {
     if (out.length >= count) break;
-    if (seenIds.has(c.id)) continue;
+    if (seenIds.has(keyOf(c))) continue;
     const vibeKey = c.vibe.slice().sort().join(',');
     const n = vibeCounts.get(vibeKey) ?? 0;
     if (n >= Math.ceil(count / 3)) continue;
     out.push(c);
-    seenIds.add(c.id);
+    seenIds.add(keyOf(c));
     vibeCounts.set(vibeKey, n + 1);
   }
 
@@ -87,9 +88,9 @@ function pickDiverse(candidates: CatalogItem[], count: number): CatalogItem[] {
   if (out.length < count) {
     for (const c of sorted) {
       if (out.length >= count) break;
-      if (!seenIds.has(c.id)) {
+      if (!seenIds.has(keyOf(c))) {
         out.push(c);
-        seenIds.add(c.id);
+        seenIds.add(keyOf(c));
       }
     }
   }
