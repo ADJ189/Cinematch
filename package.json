@@ -1,6 +1,6 @@
 {
   "name": "cinematch",
-  "version": "1.8.0",
+  "version": "1.9.0",
   "private": true,
   "type": "module",
   "description": "CineMatch \u2014 a fast, framework-free movie & TV recommendation engine.",
@@ -17,13 +17,25 @@
     "deploy": "npm run build && wrangler deploy"
   },
   "devDependencies": {
-    "oxlint": "^1.87.0",
+    "oxlint": "^1.86.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.1",
-    "wrangler": "^4.148.0"
+    "wrangler": "^4.144.0"
   },
   "overrides": {
     "undici": "7.30.0",
     "sharp": "0.35.5"
+  },
+  "dependencies": {
+    "@fontsource-variable/bricolage-grotesque": "5.3.0",
+    "@fontsource-variable/dm-sans": "5.3.0",
+    "@fontsource-variable/fraunces": "5.3.0",
+    "@fontsource-variable/inter": "5.3.0",
+    "@fontsource-variable/manrope": "5.3.0",
+    "@fontsource-variable/plus-jakarta-sans": "5.3.0",
+    "@fontsource-variable/sora": "5.3.0",
+    "@fontsource-variable/space-grotesk": "5.3.0",
+    "@fontsource/ibm-plex-mono": "5.3.0",
+    "@fontsource/ibm-plex-sans": "5.3.0"
   }
 }

@@ -45,7 +45,7 @@ Seven quick questions, a few titles you already know, and a live pull from thous
 
 ## Stack
 
-Vanilla TypeScript + Vite. No framework. The UI is four screens and a ~70-line pub-sub store (`src/lib/store.ts`) — not enough surface area to justify a compiler-driven framework, and it keeps the bundle small (first-paint JS gzips to roughly 12 kB; the on-device AI worker and the fluid canvas background are separate, lazily-loaded chunks that most page loads never touch).
+Vanilla TypeScript + Vite. No framework. The UI is four screens and a ~70-line pub-sub store (`src/lib/store.ts`) — not enough surface area to justify a compiler-driven framework, and it keeps the bundle small (first-paint JS gzips to roughly 12 kB; the on-device AI worker and the hero particle canvas are separate, lazily-loaded chunks that most page loads never touch).
 
 | | |
 |---|---|
@@ -109,7 +109,11 @@ src/
     icons.ts        the inline-SVG icon set (replaces emoji chrome), themes via currentColor
     theme.ts        light/dark mode, persisted, defaults to system preference
     header.ts       persistent top bar — logo, search entry point, profile popover, theme toggle, GitHub link
-    fluid.ts        the Navier-Stokes canvas background on the landing screen
+    ambient.ts      the hero particle canvas (pauses off-screen / when hidden)
+    appearance.ts   mode, palette, font, motion & layout preferences (validated, versioned, local)
+    settings-panel.ts  the Appearance drawer
+    fonts.ts        self-hosted font presets, loaded on demand
+    media-key.ts    `movie:123` / `tv:123` identity used for ratings, watchlist, caches
     store.ts        ~90-line pub-sub store — the entire "framework"
     dom.ts          tiny element-builder helper
   screens/          landing, quiz, rating, results, search — one module each, lazily loaded except landing

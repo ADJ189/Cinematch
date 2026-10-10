@@ -2,6 +2,26 @@
 
 All notable changes to this project are documented here.
 
+## [1.9.0] — Appearance system, hero redesign, correctness fixes
+
+### Added
+- **Appearance drawer** (header → sliders icon): System/Dark/Light, 8 hand-tuned palettes (each with separate dark and light maps, contrast-checked), custom accent with a contrast warning, 8 self-hosted font pairings, text size, line spacing, content width, density, poster size, card corners, soft-glass surfaces, high contrast, reduced transparency, motion profile and hero-particle level. Live preview, auto-save, undo/redo, per-section and global reset (appearance only — never ratings or watchlist), "Surprise me", a one-time skippable "Choose your vibe".
+- **Landing hero redesign:** product-as-artwork sample match card (CSS only), calmer layout, phone-first CTA, honest copy.
+- **One ambient canvas** (`ambient.ts`) replacing the CPU fluid solver: pauses when hidden/off-screen, capped DPR and particle count, pointer response only in Interactive mode on a hover pointer, fully torn down on leave.
+- **Toasts** with Undo for watchlist/appearance actions; View-Transition screen changes (plain swap where unsupported or motion Off); scroll-to-top and heading focus on navigation.
+- Fonts are bundled (Fontsource) — **no Google Fonts requests**; only the default pairing loads on first paint.
+
+### Fixed
+- **Movie/TV identity collisions.** TMDB reuses numeric ids across movies and shows, so a rating, watchlist entry or "already seen" filter for one could hit the other. Everything now keys on `movie:123` / `tv:123` (ratings, history, watchlist, engine, caches, DOM selectors).
+- **"Who's watching" did nothing.** The quiz collected it but nothing used it; it now tilts genre/vibe weights (family away from horror/dark thrillers, friends toward comedy/adventure, date toward drama/warm).
+- **Re-importing a smaller Letterboxd export left stale ratings steering results.** The latest import now replaces the previous imported library; ratings you gave in the app are never touched.
+- **Landing could stay dimmed** after leaving a lazy screen mid-load; **ambient loop could start after you had already left** the landing screen.
+- Search: a title chosen elsewhere in the app (pending title target) was ignored.
+- Open detail sheet is closed when its screen unmounts; stale async re-curation can no longer overwrite a newer one.
+- Misleading "offline demo mode" warning replaced with an accurate missing-TMDB-key message.
+- Profile popover: Escape, `aria-expanded`, focus handling; logo no longer reloads the page; light-mode primary-button text contrast.
+- CI: duplicate `permissions` key removed; Node 22.
+
 ## [1.8.0] — Audit fixes, security hardening, cinematic redesign
 
 ### Security
