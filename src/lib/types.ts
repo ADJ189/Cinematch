@@ -106,9 +106,10 @@ export interface GenreAffinityMap {
 export interface AppState {
   screen: Screen;
   quizAnswers: QuizAnswers;
-  ratings: Record<number, RatingValue>;
+  /** Keyed by media key (`movie:123` / `tv:123`), never a bare TMDB id. */
+  ratings: Record<string, RatingValue>;
   ratingSeeds: RatingSeed[];
-  ratingSignals: Record<number, string[]>;
+  ratingSignals: Record<string, string[]>;
   results: ScoredItem[];
   loading: boolean;
   error: string | null;

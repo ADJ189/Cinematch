@@ -18,6 +18,10 @@
 
 import type { CatalogItem, Era, Genre, RatingValue, Vibe } from './types';
 import { safeGet, safeSet } from './storage';
+import { keyOf, type TmdbMediaType } from './media-key';
+
+/** Anything with a TMDB id + media type identifies a title. */
+type TitleRef = { id: number; tmdbType: TmdbMediaType };
 
 const STORAGE_KEY = 'cinematch.profile.v1';
 const MAX_HISTORY = 1000; // oldest entries drop off past this — plenty for scoring, bounded for storage
@@ -167,6 +171,12 @@ function sanitizeProfile(raw: unknown): LocalProfile | null {
     ? raw.watchlist.map(sanitizeWatchlistEntry).filter((w): w is WatchlistEntry => w !== null)
     : [];
   const emoji = typeof raw.avatarEmoji === 'string' && AVATAR_EMOJIS.includes(raw.avatarEmoji) ? raw.avatarEmoji : undefined;
+  // Collapse exact duplicates (same media type + id), keeping the newest.
+  const dedupe = <T extends { id: number; tmdbType: TmdbMediaType }>(rows: T[]): T[] => {
+    const m = new Map<string, T>();
+    for (const r of rows) m.set(keyOf(r), r);
+    return [...m.values()];
+  };
   return {
     version: 1,
     id: str(raw.id) || base.id,
@@ -175,8 +185,8 @@ function sanitizeProfile(raw: unknown): LocalProfile | null {
     avatarEmoji: emoji,
     createdAt: num(raw.createdAt, base.createdAt),
     lastVisitAt: num(raw.lastVisitAt, base.lastVisitAt),
-    history: history.slice(-MAX_HISTORY),
-    watchlist,
+    history: dedupe(history).slice(-MAX_HISTORY),
+    watchlist: dedupe(watchlist),
   };
 }
 
@@ -258,7 +268,7 @@ export function recordRating(item: CatalogItem, rating: RatingValue, source: 'ca
     source,
   };
   // Replace any earlier verdict on the same title rather than duplicating it.
-  p.history = p.history.filter((h) => h.id !== item.id);
+  p.history = p.history.filter((h) => keyOf(h) !== keyOf(item));
   p.history.push(entry);
   if (p.history.length > MAX_HISTORY) p.history = p.history.slice(p.history.length - MAX_HISTORY);
   writeRaw(p);
@@ -266,26 +276,36 @@ export function recordRating(item: CatalogItem, rating: RatingValue, source: 'ca
 
 /** True when the person rated this title themselves in the app (calibration
  * or result screen), as opposed to it arriving via a library import. */
-export function hasDeliberateRating(id: number): boolean {
-  const existing = getProfile().history.find((h) => h.id === id);
+export function hasDeliberateRating(ref: TitleRef): boolean {
+  const k = keyOf(ref);
+  const existing = getProfile().history.find((h) => keyOf(h) === k);
   return !!existing && existing.source !== 'import';
 }
 
-/** Returns the TMDB ids that were skipped because the person had already
- * rated them in the app, so callers can keep other stores consistent with
- * the profile instead of overwriting the preserved rating. */
-export function recordImportedRatings(entries: { item: CatalogItem; stars: number }[]): Set<number> {
+/** Replaces the imported library with this file's contents.
+ *
+ * Source-of-truth rule: the most recent import IS the library. Every
+ * earlier imported entry that is absent from the new file is removed, so
+ * re-importing a smaller (or different) export can never leave stale
+ * ratings silently steering recommendations. Ratings the person gave
+ * themselves in the app (calibration / result) are never touched.
+ *
+ * Returns the media keys that were skipped because the person had already
+ * rated them in the app, so callers can keep other stores consistent. */
+export function recordImportedRatings(entries: { item: CatalogItem; stars: number }[]): Set<string> {
   const p = getProfile();
-  const kept = new Set<number>();
-  const byId = new Map(p.history.map((h) => [h.id, h]));
+  const kept = new Set<string>();
+  // Start from the deliberate ratings only — all prior imports are dropped.
+  const byId = new Map(p.history.filter((h) => h.source !== 'import').map((h) => [keyOf(h), h]));
   for (const { item, stars } of entries) {
     // A rating the person gave deliberately in the app beats an imported one.
-    const existing = byId.get(item.id);
-    if (existing && existing.source !== 'import') {
-      kept.add(item.id);
+    const k = keyOf(item);
+    const existing = byId.get(k);
+    if (existing) {
+      kept.add(k);
       continue;
     }
-    byId.set(item.id, {
+    byId.set(k, {
       id: item.id,
       tmdbType: item.tmdbType,
       title: item.title,
@@ -353,14 +373,15 @@ export function recordSeedRating(
     ratedAt: Date.now(),
     source: 'calibration',
   };
-  p.history = p.history.filter((h) => h.id !== seed.id);
+  p.history = p.history.filter((h) => keyOf(h) !== keyOf(seed));
   p.history.push(entry);
   if (p.history.length > MAX_HISTORY) p.history = p.history.slice(p.history.length - MAX_HISTORY);
   writeRaw(p);
 }
 
-export function historyRatingFor(id: number): RatingValue | undefined {
-  return getProfile().history.find((h) => h.id === id)?.rating;
+export function historyRatingFor(ref: TitleRef): RatingValue | undefined {
+  const k = keyOf(ref);
+  return getProfile().history.find((h) => keyOf(h) === k)?.rating;
 }
 
 /** Reconstructs a minimal CatalogItem from a history entry — just enough
@@ -391,15 +412,17 @@ export function historyAsCatalogItems(): { item: CatalogItem; rating: number; im
   }));
 }
 
-export function isInWatchlist(id: number): boolean {
-  return getProfile().watchlist.some((w) => w.id === id);
+export function isInWatchlist(ref: TitleRef): boolean {
+  const k = keyOf(ref);
+  return getProfile().watchlist.some((w) => keyOf(w) === k);
 }
 
 export function toggleWatchlist(item: CatalogItem): boolean {
   const p = getProfile();
-  const already = p.watchlist.some((w) => w.id === item.id);
+  const k = keyOf(item);
+  const already = p.watchlist.some((w) => keyOf(w) === k);
   if (already) {
-    p.watchlist = p.watchlist.filter((w) => w.id !== item.id);
+    p.watchlist = p.watchlist.filter((w) => keyOf(w) !== k);
   } else {
     p.watchlist.unshift({
       id: item.id,
@@ -414,9 +437,10 @@ export function toggleWatchlist(item: CatalogItem): boolean {
   return !already;
 }
 
-export function removeFromWatchlist(id: number): void {
+export function removeFromWatchlist(ref: TitleRef): void {
   const p = getProfile();
-  p.watchlist = p.watchlist.filter((w) => w.id !== id);
+  const k = keyOf(ref);
+  p.watchlist = p.watchlist.filter((w) => keyOf(w) !== k);
   writeRaw(p);
 }
 
