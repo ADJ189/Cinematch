@@ -1,4 +1,10 @@
+// Default font pairing is self-hosted and bundled (no third-party font
+// request on first paint). Other presets load on demand — see lib/fonts.ts.
+import '@fontsource-variable/sora/wght.css';
+import '@fontsource-variable/inter/wght.css';
 import './styles/global.css';
+import './styles/palettes.css';
+import './styles/primitives.css';
 import './styles/header.css';
 import './styles/landing.css';
 import './styles/quiz.css';
@@ -7,10 +13,12 @@ import './styles/results.css';
 import './styles/modal.css';
 import './styles/search.css';
 import './styles/credits.css';
+import './styles/settings.css';
 
 import { renderLanding } from './screens/landing';
 import { store } from './lib/store';
 import { initTheme } from './lib/theme';
+import { effectiveMotion } from './lib/appearance';
 import { renderHeader } from './lib/header';
 import { el, mount } from './lib/dom';
 import { safeGet, safeSet } from './lib/storage';
@@ -56,16 +64,60 @@ let currentScreen: Screen | null = null;
 // itself onto the host after landing already took over.
 let navToken = 0;
 
+/** Runs a screen swap inside a View Transition where the browser supports
+ * it (and motion isn't Off); otherwise just swaps. The callback must be
+ * safe to run late — it re-checks the navigation token itself — and a
+ * failed or skipped transition can never leave the old screen in place. */
+function swap(update: () => void) {
+  const doc = document as Document & { startViewTransition?: (cb: () => void) => unknown };
+  if (typeof doc.startViewTransition === 'function' && effectiveMotion() !== 'off' && !document.hidden) {
+    try {
+      doc.startViewTransition(update);
+      return;
+    } catch {
+      /* fall through to a plain swap */
+    }
+  }
+  update();
+}
+
+/** Scroll and focus handoff for a *new* screen: start at the top, and put
+ * keyboard / screen-reader focus on the screen's heading. */
+function arrive(initial: boolean) {
+  window.scrollTo(0, 0);
+  if (initial) return;
+  const heading = app.querySelector<HTMLElement>('h1, h2');
+  if (heading) {
+    if (!heading.hasAttribute('tabindex')) heading.setAttribute('tabindex', '-1');
+    heading.focus({ preventScroll: true });
+  }
+}
+
+let firstScreen = true;
+
 store.subscribe((state) => {
   if (state.screen === currentScreen) return;
   const token = ++navToken;
   currentCleanup?.();
   currentCleanup = null;
   currentScreen = state.screen;
+  // Any navigation supersedes an in-flight lazy load, so the loading dim
+  // must be cleared here — not only when a lazy chunk resolves. (Going
+  // back to the eager landing screen mid-load used to leave it stuck.)
+  app.classList.remove('screen-loading');
+
+  const initial = firstScreen;
+  firstScreen = false;
 
   const eager = eagerRenderers[state.screen];
   if (eager) {
-    currentCleanup = eager(app);
+    const render = () => {
+      if (token !== navToken) return;
+      currentCleanup = eager(app);
+      arrive(initial);
+    };
+    if (initial) render();
+    else swap(render);
     return;
   }
 
@@ -86,7 +138,11 @@ function loadLazyScreen(loader: () => Promise<Renderer>, token: number) {
       safeSet(CHUNK_RELOAD_KEY, '0');
       if (token !== navToken) return;
       app.classList.remove('screen-loading');
-      currentCleanup = renderer(app);
+      swap(() => {
+        if (token !== navToken) return;
+        currentCleanup = renderer(app);
+        arrive(false);
+      });
     })
     .catch(() => {
       if (token !== navToken) return;
