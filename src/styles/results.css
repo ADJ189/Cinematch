@@ -111,7 +111,7 @@
   width: 100%;
   max-width: var(--content-width);
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(200px, 1fr));
+  grid-template-columns: repeat(auto-fill, minmax(var(--poster-min), 1fr));
   gap: 20px;
 }
 
@@ -696,10 +696,6 @@
 }
 .search-overlap {
   display: block;
-}
-
-.results-grid {
-  grid-template-columns: repeat(auto-fill, minmax(176px, 1fr));
 }
 
 @media (max-width: 480px) {

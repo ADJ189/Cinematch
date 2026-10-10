@@ -219,7 +219,3 @@ p {
     min-height: var(--hit);
   }
 }
-
-.results-grid {
-  grid-template-columns: repeat(auto-fill, minmax(var(--poster-min), 1fr));
-}
