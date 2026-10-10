@@ -8,12 +8,21 @@ const FOCUSABLE =
  * moves focus inside (to `initialFocus` or the first control), keeps Tab /
  * Shift+Tab cycling within it, calls `onEscape` on Escape, and — when the
  * returned release function runs — puts focus back on whatever opened it.
+ *
+ * `also` names extra regions that live outside `container` (e.g. a toast
+ * with an Undo button) but must stay reachable. Their controls follow the
+ * container's in the Tab order.
  */
-export function trapFocus(container: HTMLElement, opts: { initialFocus?: HTMLElement; onEscape: () => void }): () => void {
+export function trapFocus(
+  container: HTMLElement,
+  opts: { initialFocus?: HTMLElement; onEscape: () => void; also?: () => (HTMLElement | null)[] }
+): () => void {
   const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null;
 
-  const focusables = () =>
-    Array.from(container.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((n) => n.offsetParent !== null || n === document.activeElement);
+  const regions = () => [container, ...(opts.also?.() ?? [])].filter((r): r is HTMLElement => !!r && document.contains(r));
+  const isVisible = (n: HTMLElement) => n.offsetParent !== null || n === document.activeElement || getComputedStyle(n).position === 'fixed';
+  const focusables = () => regions().flatMap((r) => Array.from(r.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(isVisible));
+  const inside = (n: Element | null) => !!n && regions().some((r) => r.contains(n));
 
   (opts.initialFocus ?? focusables()[0] ?? container).focus({ preventScroll: true });
 
@@ -32,10 +41,10 @@ export function trapFocus(container: HTMLElement, opts: { initialFocus?: HTMLEle
     const first = nodes[0]!;
     const last = nodes[nodes.length - 1]!;
     const active = document.activeElement;
-    if (e.shiftKey && (active === first || !container.contains(active))) {
+    if (e.shiftKey && (active === first || !inside(active))) {
       e.preventDefault();
       last.focus();
-    } else if (!e.shiftKey && (active === last || !container.contains(active))) {
+    } else if (!e.shiftKey && (active === last || !inside(active))) {
       e.preventDefault();
       first.focus();
     }

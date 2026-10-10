@@ -479,7 +479,12 @@ export function openAppearancePanel(initialTab: Tab = 'themes'): void {
   });
 
   showTab(initialTab);
-  const release = trapFocus(panel, { initialFocus: tabButtons.find((t) => t.id === initialTab)!.b, onEscape: close });
+  const release = trapFocus(panel, {
+    initialFocus: tabButtons.find((t) => t.id === initialTab)!.b,
+    onEscape: close,
+    // The toast host sits outside the drawer; keep its Undo button reachable.
+    also: () => [document.querySelector<HTMLElement>('.toast-host')],
+  });
 
   let closed = false;
   function close() {

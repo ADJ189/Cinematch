@@ -290,18 +290,23 @@ export function hasDeliberateRating(ref: TitleRef): boolean {
  * ratings silently steering recommendations. Ratings the person gave
  * themselves in the app (calibration / result) are never touched.
  *
+ * Replacement only happens when `replace` is true, i.e. when every title in
+ * the file was looked up successfully. If any lookup failed (network error,
+ * rate limit) the file's contents are incomplete, so the new matches are
+ * merged over the previous import instead and nothing is erased.
+ *
  * Returns the media keys that were skipped because the person had already
  * rated them in the app, so callers can keep other stores consistent. */
-export function recordImportedRatings(entries: { item: CatalogItem; stars: number }[]): Set<string> {
+export function recordImportedRatings(entries: { item: CatalogItem; stars: number }[], replace = true): Set<string> {
   const p = getProfile();
   const kept = new Set<string>();
-  // Start from the deliberate ratings only — all prior imports are dropped.
-  const byId = new Map(p.history.filter((h) => h.source !== 'import').map((h) => [keyOf(h), h]));
+  // Replace: start from the deliberate ratings only. Merge: keep prior imports too.
+  const byId = new Map(p.history.filter((h) => !replace || h.source !== 'import').map((h) => [keyOf(h), h]));
   for (const { item, stars } of entries) {
     // A rating the person gave deliberately in the app beats an imported one.
     const k = keyOf(item);
     const existing = byId.get(k);
-    if (existing) {
+    if (existing && existing.source !== 'import') {
       kept.add(k);
       continue;
     }
