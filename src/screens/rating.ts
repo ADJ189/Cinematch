@@ -1,6 +1,7 @@
 import { buildRatingPool } from '../lib/rating-pool';
 import { buildPosterImage, el, mount } from '../lib/dom';
 import { parseLetterboxdCsv } from '../lib/letterboxd';
+import { keyOf, parseMediaKey } from '../lib/media-key';
 import { hasDeliberateRating, recordImportedRatings, recordSeedRating } from '../lib/profile';
 import { store } from '../lib/store';
 import { findCatalogItem, isTmdbConfigured, posterUrl, searchTitle } from '../lib/tmdb';
@@ -12,11 +13,12 @@ const CONTINUE_LABEL = 'Get my recommendations →';
 
 export function renderRating(root: HTMLElement): () => void {
   let cancelled = false;
-  const cards = new Map<number, HTMLElement>();
+  const cards = new Map<string, HTMLElement>();
   let seeds: RatingSeed[] = store.getState().ratingSeeds;
-  // TMDB ids of every imported library film. A set (not a running total) so a
-  // film appearing in two files, or also on a card, is only counted once.
-  const libraryIds = new Set<number>();
+  // Media keys of the imported library. A set (not a running total) so a film
+  // appearing twice, or also on a card, is only counted once. It always
+  // mirrors the *latest* import — see runImport.
+  const libraryKeys = new Set<string>();
   // Aborts in-flight TMDB lookups when the screen is left.
   const abort = new AbortController();
   // Imports are chained through importQueue (see onImportFile); pendingImports
@@ -87,8 +89,8 @@ export function renderRating(root: HTMLElement): () => void {
     cards.clear();
 
     seeds.forEach((seed, i) => {
-      const card = buildCard(seed.id, seed.title, seed.year, seed.posterPath, i);
-      cards.set(seed.id, card);
+      const card = buildCard(seed, i);
+      cards.set(keyOf(seed), card);
       grid.appendChild(card);
 
       // The genre-weighted picks already carry a poster from the live
@@ -110,13 +112,9 @@ export function renderRating(root: HTMLElement): () => void {
     syncFromStore();
   }
 
-  function buildCard(
-    id: number,
-    title: string,
-    year: number,
-    posterPath: string | null,
-    index: number
-  ): HTMLElement {
+  function buildCard(seed: RatingSeed, index: number): HTMLElement {
+    const { title, year, posterPath } = seed;
+    const key = keyOf(seed);
     const posterWrap = el('div', { class: 'rating-poster' }, [
       buildPosterImage({ src: posterUrl(posterPath, 'md'), alt: `${title} poster`, fallbackText: title.slice(0, 1) }),
     ]);
@@ -126,14 +124,15 @@ export function renderRating(root: HTMLElement): () => void {
         'button',
         {
           class: 'star',
-          'aria-label': `Rate ${n} star${n > 1 ? 's' : ''}`,
-          onclick: () => rate(id, n as RatingValue),
+          type: 'button',
+          'aria-label': `Rate ${n} star${n > 1 ? 's' : ''} \u2014 ${title}`,
+          onclick: () => rate(seed, n as RatingValue),
         },
         ['★']
       )
     );
 
-    const card = el('div', { class: 'rating-card stagger-in', 'data-item': id, style: `--stagger: ${index}` }, [
+    const card = el('div', { class: 'rating-card stagger-in', 'data-item': key, style: `--stagger: ${index}` }, [
       posterWrap,
       el('p', { class: 'rating-title' }, [`${title} (${year})`]),
       el('div', { class: 'star-row' }, stars),
@@ -149,25 +148,40 @@ export function renderRating(root: HTMLElement): () => void {
     wrap.replaceChildren(buildPosterImage({ src: url, alt: '', fallbackText: '?' }));
   }
 
-  function rate(id: number, value: RatingValue) {
-    store.setRating(id, value);
-    const card = cards.get(id);
+  function rate(seed: RatingSeed, value: RatingValue) {
+    const key = keyOf(seed);
+    store.setRating(key, value);
+    const card = cards.get(key);
     if (card) {
-      const starEls = card.querySelectorAll<HTMLButtonElement>('.star');
-      starEls.forEach((s, i) => s.classList.toggle('filled', i < value));
+      card.classList.remove('just-rated');
+      void card.offsetWidth; // restart the confirmation animation
+      card.classList.add('just-rated');
+      paintCard(card, value);
     }
-    const seed = seeds.find((s) => s.id === id);
-    if (seed) {
-      const signals = store.getState().ratingSignals[id] ?? [];
-      recordSeedRating(seed, signals, value);
-    }
+    const signals = store.getState().ratingSignals[key] ?? [];
+    recordSeedRating(seed, signals, value);
     syncFromStore();
   }
 
+  function paintCard(card: HTMLElement, value: number) {
+    card.classList.toggle('is-rated', value > 0);
+    card.querySelectorAll<HTMLButtonElement>('.star').forEach((s, i) => {
+      s.classList.toggle('filled', i < value);
+      s.setAttribute('aria-pressed', i === value - 1 ? 'true' : 'false');
+    });
+  }
+
+  /** Repaints every card from the store — used after a re-import so ratings
+   * that the new file superseded don't keep showing stars. */
+  function paintAllFromStore() {
+    const ratings = store.getState().ratings;
+    for (const [key, card] of cards) paintCard(card, ratings[key] ?? 0);
+  }
+
   function ratedCount(): number {
-    const ids = new Set<number>(Object.keys(store.getState().ratings).map(Number));
-    for (const id of libraryIds) ids.add(id);
-    return ids.size;
+    const keys = new Set<string>(Object.keys(store.getState().ratings));
+    for (const k of libraryKeys) keys.add(k);
+    return keys.size;
   }
 
   function syncFromStore() {
@@ -231,7 +245,7 @@ export function renderRating(root: HTMLElement): () => void {
 
     // Without TMDB we can only match against the cards on screen.
     if (!isTmdbConfigured) {
-      const imported: Record<number, RatingValue> = {};
+      const imported: Record<string, RatingValue> = {};
       for (const row of rows) {
         const seed = seeds.find((s) => s.title.toLowerCase() === row.title.toLowerCase() && (!row.year || s.year === row.year));
         if (!seed) {
@@ -241,11 +255,10 @@ export function renderRating(root: HTMLElement): () => void {
         // A rating given in the app beats an imported one. A session rating
         // that came from an earlier import does not, so a re-import can
         // update it; in-app ratings are always recorded in the profile.
-        if (hasDeliberateRating(seed.id)) continue;
-        imported[seed.id] = row.rating as RatingValue;
+        if (hasDeliberateRating(seed)) continue;
+        imported[keyOf(seed)] = row.rating as RatingValue;
       }
-      store.importRatings(imported);
-      paintImported(imported);
+      applyImport(imported);
       setImportStatus(`Matched ${Object.keys(imported).length} of ${rows.length}. Add a TMDB key to match the rest of your library.`);
       syncFromStore();
       return;
@@ -280,26 +293,42 @@ export function renderRating(root: HTMLElement): () => void {
     const keptIds = recordImportedRatings(matched);
 
     // Titles that are also visible as seed cards light up their stars.
-    const imported: Record<number, RatingValue> = {};
+    const imported: Record<string, RatingValue> = {};
     for (const m of matched) {
       // Only ratings given in the app are protected; a session rating left
       // by an earlier import is replaced by this file's value.
-      if (keptIds.has(m.item.id)) continue;
-      if (seeds.some((s) => s.id === m.item.id)) imported[m.item.id] = Math.max(1, Math.min(5, Math.round(m.stars))) as RatingValue;
+      const k = keyOf(m.item);
+      if (keptIds.has(k)) continue;
+      if (seeds.some((s) => keyOf(s) === k)) imported[k] = Math.max(1, Math.min(5, Math.round(m.stars))) as RatingValue;
     }
-    store.importRatings(imported);
-    paintImported(imported);
+    applyImport(imported);
 
-    // The library itself counts toward the "rate a few" requirement.
-    for (const m of matched) libraryIds.add(m.item.id);
+    // The library itself counts toward the "rate a few" requirement. It is
+    // rebuilt (not appended to): the latest file is the whole library.
+    libraryKeys.clear();
+    for (const m of matched) libraryKeys.add(keyOf(m.item));
     setImportStatus(`Imported ${rows.length} films \u00b7 matched ${matched.length} \u00b7 couldn\u2019t identify ${unmatched}.`);
     syncFromStore();
   }
 
-  function paintImported(imported: Record<number, RatingValue>) {
-    for (const [idStr, value] of Object.entries(imported)) {
-      const card = cards.get(Number(idStr));
-      card?.querySelectorAll<HTMLButtonElement>('.star').forEach((s, i) => s.classList.toggle('filled', i < value));
+  /** Session ratings = ratings the person gave in the app + this file's
+   * ratings. Anything a previous import put there that this file doesn't
+   * contain is dropped, so a smaller re-import really replaces the old one. */
+  function applyImport(imported: Record<string, RatingValue>) {
+    const next: Record<string, RatingValue> = {};
+    for (const [k, v] of Object.entries(store.getState().ratings)) {
+      const ref = parseMediaKey(k);
+      if (ref && hasDeliberateRating(ref)) next[k] = v;
+    }
+    Object.assign(next, imported);
+    store.replaceRatings(next);
+    paintAllFromStore();
+  }
+
+  function paintImported(imported: Record<string, RatingValue>) {
+    for (const [key, value] of Object.entries(imported)) {
+      const card = cards.get(key);
+      if (card) paintCard(card, value);
     }
   }
 

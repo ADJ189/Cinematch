@@ -9,6 +9,9 @@ import { mountProviders } from '../lib/providers-ui';
 import { fetchExternalRatings, isOmdbConfigured } from '../lib/omdb';
 import { enableLocalAi, explainPick, getLlmStatus, getLlmStatusDetail } from '../lib/llm';
 import { historyAsCatalogItems, historyRatingFor, isInWatchlist, recordRating, toggleWatchlist } from '../lib/profile';
+import { keyOf } from '../lib/media-key';
+import { buildStarRow, buildWatchlistButton, paintStars } from '../lib/rating-ui';
+import { showToast } from '../lib/toast';
 import { ICON } from '../lib/icons';
 import type { CatalogItem, RatingValue, ResultsMode, ScoredItem } from '../lib/types';
 
@@ -63,9 +66,13 @@ export function renderResults(root: HTMLElement): () => void {
   const seedRatings = store.getState().ratings;
   const ratingSeeds = store.getState().ratingSeeds;
   const ratingSignals = store.getState().ratingSignals;
-  const resultRatings = new Map<number, RatingValue>();
-  const itemsById = new Map<number, CatalogItem>();
-  const shownIds = new Set<number>();
+  const resultRatings = new Map<string, RatingValue>();
+  const itemsByKey = new Map<string, CatalogItem>();
+  const shownKeys = new Set<string>();
+  // Bumped by every re-curation; a slower, older one can't overwrite a newer
+  // draw (e.g. a rating's debounced refresh landing after "Different picks").
+  let drawToken = 0;
+  let closeOpenModal: (() => void) | null = null;
   let allCandidates: CatalogItem[] = [];
   let pageOffset = 0;
   let refreshing = false;
@@ -138,8 +145,8 @@ export function renderResults(root: HTMLElement): () => void {
 
   function mergeCandidates(items: CatalogItem[]) {
     for (const item of items) {
-      if (!itemsById.has(item.id)) {
-        itemsById.set(item.id, item);
+      if (!itemsByKey.has(keyOf(item))) {
+        itemsByKey.set(keyOf(item), item);
         allCandidates.push(item);
       }
     }
@@ -159,8 +166,8 @@ export function renderResults(root: HTMLElement): () => void {
     const engine = new RecommendationEngine();
     engine.processQuiz(quizAnswers);
     engine.processRatings(seedRatings, ratingSeeds, ratingSignals);
-    for (const [id, rating] of resultRatings) {
-      const item = itemsById.get(id);
+    for (const [key, rating] of resultRatings) {
+      const item = itemsByKey.get(key);
       if (item) engine.processResultRating(item, rating);
     }
     // Everything the local profile remembers from *previous* sessions —
@@ -177,11 +184,9 @@ export function renderResults(root: HTMLElement): () => void {
     // screen can build a different pool, whose signal map no longer covers
     // seeds rated earlier; those ratings contribute nothing above, so they
     // must fall through to the history pass instead of being dropped.
-    const countedSeeds = Object.keys(seedRatings)
-      .map(Number)
-      .filter((id) => ratingSignals[id] !== undefined);
-    const counted = new Set<number>([...countedSeeds, ...resultRatings.keys()]);
-    const history = historyAsCatalogItems().filter(({ item }) => !counted.has(item.id));
+    const countedSeeds = Object.keys(seedRatings).filter((key) => ratingSignals[key] !== undefined);
+    const counted = new Set<string>([...countedSeeds, ...resultRatings.keys()]);
+    const history = historyAsCatalogItems().filter(({ item }) => !counted.has(keyOf(item)));
     // A big imported library must not outvote the quiz, so *imported*
     // entries are scaled down past ~12 films to keep the library's total
     // weight bounded. Ratings the person gave deliberately in this app
@@ -197,24 +202,24 @@ export function renderResults(root: HTMLElement): () => void {
 
   function rescore(count: number, opts: { ignoreShown?: boolean; ignorePreciseFloor?: boolean } = {}): ScoredItem[] {
     const engine = buildEngine();
-    const pool = allCandidates.filter((c) => !resultRatings.has(c.id) && historyRatingFor(c.id) === undefined);
+    const pool = allCandidates.filter((c) => !resultRatings.has(keyOf(c)) && historyRatingFor(c) === undefined);
     const scored = engine.getResults(pool, ratingSignals);
-    let unseen = opts.ignoreShown ? scored : scored.filter((r) => !shownIds.has(r.id));
+    let unseen = opts.ignoreShown ? scored : scored.filter((r) => !shownKeys.has(keyOf(r)));
     if (mode === 'precise' && !opts.ignorePreciseFloor) unseen = unseen.filter((r) => r.matchPct >= PRECISE_MIN_MATCH);
 
     const batch = unseen.slice(0, count);
-    for (const item of batch) shownIds.add(item.id);
+    for (const item of batch) shownKeys.add(keyOf(item));
     return batch;
   }
 
   /**
-   * Used to hand back a blank grid the moment `shownIds` (accumulated
+   * Used to hand back a blank grid the moment `shownKeys` (accumulated
    * every time a batch is drawn) happened to cover the whole pool — which,
    * for a narrow filter combination, could be after rating just a
    * handful of results. Escalates through fallbacks instead, and always
    * returns *something* plus an honest note when it had to compromise,
    * rather than a dead end:
-   *   1. Retry ignoring `shownIds` — repeats may just be crowding it out.
+   *   1. Retry ignoring `shownKeys` — repeats may just be crowding it out.
    *   2. Pull a later page window from TMDB (same as "Different picks").
    *   3. Drop precise mode's 68%+ floor.
    *   4. Last resort: show the pool's best remaining titles regardless of
@@ -270,7 +275,7 @@ export function renderResults(root: HTMLElement): () => void {
    * candidate objects, so the real scoring pass that follows sees them. */
   async function enrichTopCandidates() {
     if (!isOmdbConfigured) return;
-    const pool = allCandidates.filter((c) => !c.externalRatings && !resultRatings.has(c.id));
+    const pool = allCandidates.filter((c) => !c.externalRatings && !resultRatings.has(keyOf(c)));
     const top = buildEngine()
       .getResults(pool, ratingSignals)
       .slice(0, ENRICH_LIMIT);
@@ -282,7 +287,7 @@ export function renderResults(root: HTMLElement): () => void {
       while (next < top.length && !cancelled && Date.now() < deadline) {
         const entry = top[next++]!;
         const ext = await fetchExternalRatings(entry.title, entry.year);
-        const original = itemsById.get(entry.id);
+        const original = itemsByKey.get(keyOf(entry));
         if (ext && original) original.externalRatings = ext;
       }
     };
@@ -292,12 +297,13 @@ export function renderResults(root: HTMLElement): () => void {
   async function onDifferentPicks(btn: HTMLElement) {
     if (refreshing) return;
     refreshing = true;
+    const token = ++drawToken;
     btn.setAttribute('disabled', '');
     btn.textContent = 'Finding more…';
 
     try {
       const { batch, note } = await ensureBatch(targetCount());
-      if (cancelled) return;
+      if (cancelled || token !== drawToken) return;
 
       store.setResults(batch);
       draw(batch, note);
@@ -316,10 +322,11 @@ export function renderResults(root: HTMLElement): () => void {
     // Switching bands is itself a fresh request — start the "seen" set
     // over so precise mode can freely pick from titles a wider grouped
     // batch already showed, and vice versa.
-    shownIds.clear();
+    shownKeys.clear();
+    const token = ++drawToken;
     try {
       const { batch, note } = await ensureBatch(targetCount());
-      if (cancelled) return;
+      if (cancelled || token !== drawToken) return;
       store.setResults(batch);
       draw(batch, note);
     } finally {
@@ -332,31 +339,27 @@ export function renderResults(root: HTMLElement): () => void {
    * debounces the actual re-curation so a burst of ratings doesn't
    * re-render the whole grid on every tap. Routes through ensureBatch
    * instead of a bare rescore(): for a narrow filter combination,
-   * `shownIds` can end up covering the whole live pool after just a
+   * `shownKeys` can end up covering the whole live pool after just a
    * handful of ratings, and a bare rescore() would then hand back an
    * empty batch with nothing on screen to explain why. */
   function onRateResult(item: ScoredItem, value: RatingValue) {
-    resultRatings.set(item.id, value);
+    const key = keyOf(item);
+    resultRatings.set(key, value);
     recordRating(item, value, 'result');
-    updateStarVisual(item.id, value);
+    paintStars(screen, key, value);
     setCurating(true);
 
     if (rateTimer !== null) window.clearTimeout(rateTimer);
+    const token = ++drawToken;
     rateTimer = window.setTimeout(() => {
       rateTimer = null;
       void (async () => {
         const { batch, note } = await ensureBatch(targetCount());
-        if (cancelled) return;
+        if (cancelled || token !== drawToken) return;
         store.setResults(batch);
         draw(batch, note);
       })();
     }, RATE_DEBOUNCE_MS);
-  }
-
-  function updateStarVisual(itemId: number, value: RatingValue) {
-    screen.querySelectorAll<HTMLElement>(`[data-item="${itemId}"]`).forEach((row) => {
-      row.querySelectorAll<HTMLButtonElement>('.star').forEach((s, i) => s.classList.toggle('filled', i < value));
-    });
   }
 
   function setCurating(active: boolean) {
@@ -470,8 +473,8 @@ export function renderResults(root: HTMLElement): () => void {
               onclick: () => {
                 quizAnswers = { ...quizAnswers, era: 'any', language: 'any_lang' };
                 allCandidates = [];
-                itemsById.clear();
-                shownIds.clear();
+                itemsByKey.clear();
+                shownKeys.clear();
                 pageOffset = 0;
                 void run();
               },
@@ -491,8 +494,8 @@ export function renderResults(root: HTMLElement): () => void {
     const pops = rest.map((r) => r.popularity).sort((x, y) => x - y);
     const medianPop = pops.length ? pops[Math.floor(pops.length / 2)]! : 0;
     const gems = rest.filter((r) => r.popularity <= medianPop && r.voteAverage >= 7.2 && r.matchPct >= 55).slice(0, 4);
-    const gemIds = new Set(gems.map((g) => g.id));
-    const others = rest.filter((r) => !gemIds.has(r.id));
+    const gemKeys = new Set(gems.map(keyOf));
+    const others = rest.filter((r) => !gemKeys.has(keyOf(r)));
     return {
       featured,
       strongest: others.filter((r) => r.fit !== 'stretch'),
@@ -640,48 +643,10 @@ export function renderResults(root: HTMLElement): () => void {
         const sentence = await explainPick(item, summary);
         if (cancelled) return;
         screen
-          .querySelectorAll<HTMLElement>(`[data-reasons="${item.id}"]`)
+          .querySelectorAll<HTMLElement>(`[data-reasons="${keyOf(item)}"]`)
           .forEach((listEl) => listEl.replaceChildren(el('li', { class: 'ai-reason' }, [sentence])));
       })
     );
-  }
-
-  function buildWatchlistButton(item: ScoredItem): HTMLElement {
-    const btn = el('button', {
-      class: `watchlist-btn${isInWatchlist(item.id) ? ' active' : ''}`,
-      'aria-label': isInWatchlist(item.id) ? 'Remove from watchlist' : 'Save to watchlist',
-      onclick: (e: Event) => {
-        e.stopPropagation();
-        const nowSaved = toggleWatchlist(item);
-        btn.classList.toggle('active', nowSaved);
-        btn.setAttribute('aria-label', nowSaved ? 'Remove from watchlist' : 'Save to watchlist');
-        btn.innerHTML = nowSaved ? ICON.bookmarkFilled : ICON.bookmark;
-      },
-    });
-    btn.innerHTML = isInWatchlist(item.id) ? ICON.bookmarkFilled : ICON.bookmark;
-    return btn;
-  }
-
-  function buildStarRow(
-    itemId: number,
-    current: RatingValue | undefined,
-    onRate: (v: RatingValue) => void
-  ): HTMLElement {
-    const stars = ([1, 2, 3, 4, 5] as RatingValue[]).map((n) =>
-      el(
-        'button',
-        {
-          class: `star${current !== undefined && n <= current ? ' filled' : ''}`,
-          'aria-label': `Rate ${n} star${n > 1 ? 's' : ''}`,
-          onclick: (e: Event) => {
-            e.stopPropagation();
-            onRate(n);
-          },
-        },
-        ['★']
-      )
-    );
-    return el('div', { class: 'star-row star-row-sm', 'data-item': itemId }, stars);
   }
 
   /** A real <button> stretched over the poster: keyboard-focusable, with
@@ -735,8 +700,8 @@ export function renderResults(root: HTMLElement): () => void {
         ]),
         buildMatchMeter(item),
         ...(chips ? [chips] : []),
-        el('ul', { class: 'result-reasons', 'data-reasons': item.id }, item.reasons.map((r) => el('li', {}, [r]))),
-        buildStarRow(item.id, resultRatings.get(item.id) ?? historyRatingFor(item.id), (v) => onRateResult(item, v)),
+        el('ul', { class: 'result-reasons', 'data-reasons': keyOf(item) }, item.reasons.map((r) => el('li', {}, [r]))),
+        buildStarRow(item, resultRatings.get(keyOf(item)) ?? historyRatingFor(item), (v) => onRateResult(item, v)),
       ]),
     ]);
   }
@@ -756,18 +721,20 @@ export function renderResults(root: HTMLElement): () => void {
         buildMatchMeter(item, 'lg'),
         ...(chips ? [chips] : []),
         el('p', { class: 'featured-overview' }, [item.overview ? truncate(item.overview, 220) : 'No synopsis available.']),
-        el('ul', { class: 'result-reasons', 'data-reasons': item.id }, item.reasons.map((r) => el('li', {}, [r]))),
+        el('ul', { class: 'result-reasons', 'data-reasons': keyOf(item) }, item.reasons.map((r) => el('li', {}, [r]))),
         el('div', { class: 'featured-actions' }, [openBtn, buildWatchlistInline(item)]),
       ]),
     ]);
   }
 
   function buildWatchlistInline(item: ScoredItem): HTMLElement {
-    const label = () => (isInWatchlist(item.id) ? '\u2713 In watchlist' : '+ Watchlist');
-    const btn = el('button', { class: 'btn btn-ghost', type: 'button' }, [label()]);
+    const label = () => (isInWatchlist(item) ? '\u2713 In watchlist' : '+ Watchlist');
+    const btn = el('button', { class: 'btn btn-ghost', type: 'button', 'aria-pressed': isInWatchlist(item) ? 'true' : 'false' }, [label()]);
     btn.addEventListener('click', () => {
-      toggleWatchlist(item);
+      const saved = toggleWatchlist(item);
       btn.textContent = label();
+      btn.setAttribute('aria-pressed', saved ? 'true' : 'false');
+      showToast(saved ? `Saved \u201c${item.title}\u201d to your watchlist` : `Removed \u201c${item.title}\u201d from your watchlist`);
     });
     return btn;
   }
@@ -781,7 +748,7 @@ export function renderResults(root: HTMLElement): () => void {
     if (item.externalRatings?.metacritic !== undefined) ratingParts.push({ svg: ICON.metacritic, label: `${item.externalRatings.metacritic}` });
     if (item.externalRatings?.imdbRating !== undefined) ratingParts.push({ svg: ICON.starFilled, label: `IMDb ${item.externalRatings.imdbRating}` });
 
-    const titleId = `modal-title-${item.id}`;
+    const titleId = `modal-title-${item.tmdbType}-${item.id}`;
     const overlay = el('div', { class: 'modal-overlay' });
     const closeBtn = el('button', { class: 'modal-close', type: 'button', 'aria-label': 'Close details' });
     closeBtn.innerHTML = ICON.close;
@@ -833,7 +800,7 @@ export function renderResults(root: HTMLElement): () => void {
           el(
             'button',
             {
-              class: `btn btn-ghost modal-watchlist-btn${isInWatchlist(item.id) ? ' active' : ''}`,
+              class: `btn btn-ghost modal-watchlist-btn${isInWatchlist(item) ? ' active' : ''}`,
               type: 'button',
               onclick: (e: Event) => {
                 const btn = e.currentTarget as HTMLButtonElement;
@@ -842,11 +809,11 @@ export function renderResults(root: HTMLElement): () => void {
                 btn.textContent = nowSaved ? '✓ In watchlist' : '+ Watchlist';
               },
             },
-            [isInWatchlist(item.id) ? '✓ In watchlist' : '+ Watchlist']
+            [isInWatchlist(item) ? '✓ In watchlist' : '+ Watchlist']
           ),
         ]),
         el('p', { class: 'modal-rate-label' }, ['Rate it, or rate it after you watch — either sharpens your picks:']),
-        buildStarRow(item.id, resultRatings.get(item.id) ?? historyRatingFor(item.id), (v) => {
+        buildStarRow(item, resultRatings.get(keyOf(item)) ?? historyRatingFor(item), (v) => {
           onRateResult(item, v);
           close();
         }),
@@ -860,9 +827,12 @@ export function renderResults(root: HTMLElement): () => void {
     const release = trapFocus(modal, { initialFocus: closeBtn, onEscape: close });
     void trigger; // focus restore is handled by trapFocus's release()
 
+    closeOpenModal = close;
+
     function close() {
       if (modalClosed) return;
       modalClosed = true;
+      if (closeOpenModal === close) closeOpenModal = null;
       providersHost.dispatchEvent(new Event('providers-unmount'));
       overlay.remove();
       document.body.style.overflow = '';
@@ -883,5 +853,8 @@ export function renderResults(root: HTMLElement): () => void {
   return () => {
     cancelled = true;
     if (rateTimer !== null) window.clearTimeout(rateTimer);
+    // An open detail sheet lives on <body>, outside the screen: close it so
+    // it can't outlive the screen and leave scrolling locked.
+    closeOpenModal?.();
   };
 }

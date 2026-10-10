@@ -14,10 +14,12 @@
 import { buildPosterImage, el, mount } from '../lib/dom';
 import { ICON } from '../lib/icons';
 import { enableLocalAi, explainPick, getLlmStatus, getLlmStatusDetail } from '../lib/llm';
-import { isInWatchlist, recordRating, toggleWatchlist } from '../lib/profile';
+import { recordRating } from '../lib/profile';
+import { keyOf } from '../lib/media-key';
+import { buildStarRow, buildWatchlistButton, paintStars } from '../lib/rating-ui';
 import { mountProviders } from '../lib/providers-ui';
 import { store } from '../lib/store';
-import { backdropUrl, getCredits, getPersonBestWork, getPersonDetails, getSimilarTitles, personImageUrl, posterUrl, searchMulti, searchPeople, tmdbDetailsUrl, TmdbUnavailableError } from '../lib/tmdb';
+import { backdropUrl, getCredits, getPersonBestWork, getPersonDetails, getSimilarTitles, getTitleDetails, personImageUrl, posterUrl, searchMulti, searchPeople, tmdbDetailsUrl, TmdbUnavailableError } from '../lib/tmdb';
 import { buildCreditsBlock } from '../lib/credits-ui';
 import type { CatalogItem, RatingValue, ScoredItem } from '../lib/types';
 
@@ -50,7 +52,7 @@ export function renderSearch(root: HTMLElement): () => void {
   // the page for a newer choice.
   let detailToken = 0;
   let similarItems: ScoredItem[] = [];
-  const resultRatings = new Map<number, RatingValue>();
+  const resultRatings = new Map<string, RatingValue>();
 
   const screen = el('div', { class: 'screen search-screen' });
   mount(root, screen);
@@ -99,6 +101,7 @@ export function renderSearch(root: HTMLElement): () => void {
     if (pending) {
       store.clearPendingSearchTarget();
       if (pending.kind === 'person') void selectPerson(pending.id, detailHost);
+      else void selectTitleById(pending.id, pending.tmdbType, detailHost);
     }
 
     async function runSearch(query: string) {
@@ -207,6 +210,27 @@ export function renderSearch(root: HTMLElement): () => void {
         el('div', { class: 'state-message', role: 'alert' }, [
           el('h3', {}, ['Couldn\u2019t load this person']),
           el('button', { class: 'btn btn-primary', type: 'button', onclick: () => void selectPerson(id, host) }, ['Retry']),
+        ])
+      );
+    }
+  }
+
+  /** A title picked elsewhere in the app (pendingSearchTarget) arrives as a
+   * bare id; resolve it to a full item before showing similar titles. */
+  async function selectTitleById(id: number, tmdbType: 'movie' | 'tv', host: HTMLElement) {
+    const token = ++detailToken;
+    host.replaceChildren(el('p', { class: 'search-loading', role: 'status' }, ['Loading\u2026']));
+    try {
+      const item = await getTitleDetails(id, tmdbType);
+      if (cancelled || token !== detailToken) return;
+      if (item) void selectTitle(item, host);
+      else host.replaceChildren(el('p', { class: 'search-loading' }, ['We couldn\u2019t find that title.']));
+    } catch {
+      if (cancelled || token !== detailToken) return;
+      host.replaceChildren(
+        el('div', { class: 'state-message', role: 'alert' }, [
+          el('h3', {}, ['Couldn\u2019t load this title']),
+          el('button', { class: 'btn btn-primary', type: 'button', onclick: () => void selectTitleById(id, tmdbType, host) }, ['Retry']),
         ])
       );
     }
@@ -333,25 +357,11 @@ export function renderSearch(root: HTMLElement): () => void {
     await Promise.all(
       results.slice(0, AI_LIMIT).map(async (item, i) => {
         const sentence = await explainPick(item, summary);
+        if (cancelled) return;
         const listEl = cards[i];
         if (listEl) listEl.replaceChildren(el('li', { class: 'ai-reason' }, [sentence]));
       })
     );
-  }
-
-  function buildWatchlistButton(item: ScoredItem): HTMLElement {
-    const btn = el('button', {
-      class: `watchlist-btn${isInWatchlist(item.id) ? ' active' : ''}`,
-      'aria-label': isInWatchlist(item.id) ? 'Remove from watchlist' : 'Save to watchlist',
-      onclick: (e: Event) => {
-        e.stopPropagation();
-        const nowSaved = toggleWatchlist(item);
-        btn.classList.toggle('active', nowSaved);
-        btn.innerHTML = nowSaved ? ICON.bookmarkFilled : ICON.bookmark;
-      },
-    });
-    btn.innerHTML = isInWatchlist(item.id) ? ICON.bookmarkFilled : ICON.bookmark;
-    return btn;
   }
 
   function buildCard(item: ScoredItem, index: number): HTMLElement {
@@ -417,34 +427,14 @@ export function renderSearch(root: HTMLElement): () => void {
           { class: 'result-reasons' },
           item.reasons.map((r) => el('li', {}, [r]))
         ),
-        buildStarRow(item.id, resultRatings.get(item.id), (v) => {
-          resultRatings.set(item.id, v);
+        buildStarRow(item, resultRatings.get(keyOf(item)), (v) => {
+          resultRatings.set(keyOf(item), v);
           recordRating(item, v, 'result');
-          screen.querySelectorAll<HTMLElement>(`[data-item="${item.id}"]`).forEach((row) => {
-            row.querySelectorAll<HTMLButtonElement>('.star').forEach((s, i) => s.classList.toggle('filled', i < v));
-          });
+          paintStars(screen, keyOf(item), v);
         }),
       ]),
     ]);
     return card;
-  }
-
-  function buildStarRow(id: number, current: RatingValue | undefined, onRate: (v: RatingValue) => void): HTMLElement {
-    const stars = ([1, 2, 3, 4, 5] as RatingValue[]).map((n) =>
-      el(
-        'button',
-        {
-          class: `star${current !== undefined && n <= current ? ' filled' : ''}`,
-          'aria-label': `Rate ${n} star${n > 1 ? 's' : ''}`,
-          onclick: (e: Event) => {
-            e.stopPropagation();
-            onRate(n);
-          },
-        },
-        ['★']
-      )
-    );
-    return el('div', { class: 'star-row star-row-sm', 'data-item': id }, stars);
   }
 
   return () => {
