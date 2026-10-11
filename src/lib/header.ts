@@ -19,6 +19,8 @@ import {
 } from './profile';
 import { posterUrl, tmdbDetailsUrl } from './tmdb';
 import { getTheme, toggleTheme } from './theme';
+import { subscribeAppearance } from './appearance';
+import { isAppearanceOpen, openAppearancePanel } from './settings-panel';
 import { store } from './store';
 
 const GITHUB_URL = 'https://github.com/ADJ189/Cinematch';
@@ -28,41 +30,73 @@ const AVATAR_COLOR_CHOICES = [
 const SEARCH_ICON = `<svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><circle cx="8.6" cy="8.6" r="5.6" stroke="currentColor" stroke-width="1.6"/><path d="M17 17l-4-4" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/></svg>`;
 
 export function renderHeader(): HTMLElement {
-  const themeBtn = el(
-    'button',
-    { class: 'theme-toggle', 'aria-label': 'Toggle light/dark theme', onclick: onToggle },
-    [themeIcon()]
-  );
+  const themeBtn = el('button', { class: 'theme-toggle', type: 'button', onclick: onToggle }, [themeIcon()]);
+  const syncThemeBtn = () => {
+    const mode = getTheme();
+    themeBtn.replaceChildren(themeIcon());
+    themeBtn.setAttribute('aria-label', mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode');
+    themeBtn.setAttribute('title', mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode');
+  };
+  syncThemeBtn();
+  // The OS (System mode) or the Appearance panel can change the mode too.
+  subscribeAppearance(syncThemeBtn);
 
-  const profileBtn = el('button', { class: 'profile-btn', 'aria-label': 'Your profile & watchlist' });
+  const appearanceBtn = el('button', {
+    class: 'theme-toggle appearance-btn',
+    type: 'button',
+    'aria-label': 'Appearance settings',
+    'aria-haspopup': 'dialog',
+    title: 'Appearance settings',
+    onclick: () => openAppearancePanel(),
+  });
+  appearanceBtn.innerHTML = `<span class="icon-inline" style="width:18px;height:18px">${ICON.sliders}</span>`;
+
+  const profileBtn = el('button', {
+    class: 'profile-btn',
+    type: 'button',
+    'aria-label': 'Your profile & watchlist',
+    'aria-haspopup': 'true',
+    'aria-expanded': 'false',
+  });
   profileBtn.appendChild(avatarContent());
   const popover = buildProfilePopover();
   let open = false;
 
+  function setOpen(next: boolean, restoreFocus = false) {
+    open = next;
+    popover.classList.toggle('open', open);
+    profileBtn.setAttribute('aria-expanded', open ? 'true' : 'false');
+    if (open) {
+      refreshPopover();
+      popover.focus({ preventScroll: true }); // the container, so no on-screen keyboard pops up
+    } else if (restoreFocus) {
+      profileBtn.focus({ preventScroll: true });
+    }
+  }
+
   profileBtn.addEventListener('click', (e) => {
     e.stopPropagation();
-    open = !open;
-    popover.classList.toggle('open', open);
-    if (open) refreshPopover();
+    setOpen(!open);
   });
   document.addEventListener('click', (e) => {
-    if (open && !popover.contains(e.target as Node) && e.target !== profileBtn) {
-      open = false;
-      popover.classList.remove('open');
-    }
+    if (open && !popover.contains(e.target as Node) && e.target !== profileBtn) setOpen(false);
+  });
+  document.addEventListener('keydown', (e) => {
+    if (e.key === 'Escape' && open && !isAppearanceOpen()) setOpen(false, true);
   });
 
-  const searchBtn = el('button', { class: 'header-search-btn', 'aria-label': 'Search for a title', onclick: () => store.setScreen('search') });
+  const searchBtn = el('button', { class: 'header-search-btn', type: 'button', 'aria-label': 'Search for a title', title: 'Search for a title', onclick: () => store.setScreen('search') });
   searchBtn.innerHTML = `<span class="icon-inline" style="width:17px;height:17px">${SEARCH_ICON}</span>`;
 
   const header = el('header', { class: 'app-header' }, [
     el('div', { class: 'app-header-inner' }, [
-      el('a', { class: 'app-brand', href: '/', 'aria-label': 'CineMatch home' }, [
+      el('a', { class: 'app-brand', href: '/', 'aria-label': 'CineMatch home', onclick: onBrand }, [
         el('img', { src: '/logo.svg', alt: '', width: '22', height: '22' }),
         el('span', {}, ['CineMatch']),
       ]),
       el('div', { class: 'app-header-actions' }, [
         searchBtn,
+        appearanceBtn,
         themeBtn,
         el('div', { class: 'profile-wrap' }, [profileBtn, popover]),
         el(
@@ -82,7 +116,16 @@ export function renderHeader(): HTMLElement {
 
   function onToggle() {
     toggleTheme();
-    themeBtn.replaceChildren(themeIcon());
+    syncThemeBtn();
+  }
+
+  /** The logo is a link, but a full page load would throw away the current
+   * session (quiz answers, ratings). Same-tab clicks navigate in-app. */
+  function onBrand(e: Event) {
+    const me = e as MouseEvent;
+    if (me.metaKey || me.ctrlKey || me.shiftKey || me.button !== 0) return;
+    e.preventDefault();
+    store.setScreen('landing');
   }
 
   function avatarContent(size: 'sm' | 'lg' = 'sm'): HTMLElement {
@@ -97,7 +140,7 @@ export function renderHeader(): HTMLElement {
   }
 
   function buildProfilePopover(): HTMLElement {
-    const pop = el('div', { class: 'profile-popover' }, buildPopoverContent());
+    const pop = el('div', { class: 'profile-popover', role: 'dialog', 'aria-label': 'Your profile and watchlist', tabindex: '-1' }, buildPopoverContent());
     return pop;
   }
 
@@ -127,7 +170,7 @@ export function renderHeader(): HTMLElement {
         onclick: (e: Event) => {
           e.preventDefault();
           e.stopPropagation();
-          removeFromWatchlist(w.id);
+          removeFromWatchlist(w);
           refreshPopover();
         },
       });

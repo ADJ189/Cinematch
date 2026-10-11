@@ -106,9 +106,10 @@ export interface GenreAffinityMap {
 export interface AppState {
   screen: Screen;
   quizAnswers: QuizAnswers;
-  ratings: Record<number, RatingValue>;
+  /** Keyed by media key (`movie:123` / `tv:123`), never a bare TMDB id. */
+  ratings: Record<string, RatingValue>;
   ratingSeeds: RatingSeed[];
-  ratingSignals: Record<number, string[]>;
+  ratingSignals: Record<string, string[]>;
   results: ScoredItem[];
   loading: boolean;
   error: string | null;
@@ -119,7 +120,11 @@ export interface AppState {
   pendingSearchTarget: SearchTarget | null;
 }
 
-export type SearchTarget = { kind: 'title'; id: number; tmdbType: 'movie' | 'tv' } | { kind: 'person'; id: number };
+export type SearchTarget =
+  | { kind: 'title'; id: number; tmdbType: 'movie' | 'tv' }
+  | { kind: 'person'; id: number }
+  /** Opens search with the box pre-filled (command palette). */
+  | { kind: 'query'; query: string };
 
 /** A cast or crew credit as returned by /movie|tv/{id}/credits. */
 export interface CastMember {

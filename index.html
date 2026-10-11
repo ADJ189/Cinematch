@@ -4,28 +4,41 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
     <meta name="description" content="CineMatch — a fast, precision movie and TV recommendation engine. No server account, nothing tracked off your device, just better picks that improve the more you rate." />
-    <meta name="theme-color" content="#0a0714" media="(prefers-color-scheme: dark)" />
-    <meta name="theme-color" content="#f7f3ee" media="(prefers-color-scheme: light)" />
+    <meta name="theme-color" content="#07050f" />
+    <meta name="color-scheme" content="dark light" />
     <title>CineMatch — find what to watch next</title>
     <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
-    <link rel="preconnect" href="https://fonts.googleapis.com" />
-    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
     <link rel="preconnect" href="https://api.themoviedb.org" />
     <link rel="preconnect" href="https://image.tmdb.org" crossorigin />
-    <link
-      href="https://fonts.googleapis.com/css2?family=Sora:wght@400;500;600;700;800&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500&display=swap"
-      rel="stylesheet"
-    />
     <script>
-      // Applied before first paint to avoid a flash of the wrong theme —
-      // src/lib/theme.ts re-applies this on load and owns it from there.
+      // Applied before first paint so a reload never flashes the wrong mode
+      // or palette. src/lib/appearance.ts re-applies (and fully validates)
+      // everything on load and owns it from there. Everything read here is
+      // checked against a whitelist — stored text is never written into the
+      // document as markup or CSS.
       (function () {
         try {
-          var stored = localStorage.getItem('cinematch-theme');
-          var theme = stored === 'dark' || stored === 'light'
-            ? stored
-            : (window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark');
-          document.documentElement.setAttribute('data-theme', theme);
+          var root = document.documentElement;
+          var BG = {
+            aurora: ['#07050f', '#f7f3ee'], 'noir-gold': ['#0b0a08', '#f6f2e9'], oceanic: ['#050d14', '#edf5f8'],
+            ember: ['#0f0709', '#fbf2ec'], forest: ['#050d09', '#edf4ee'], 'velvet-rose': ['#0e0612', '#faf0f5'],
+            'indie-paper': ['#14100b', '#f5efe0'], monochrome: ['#000000', '#ffffff']
+          };
+          var p = null;
+          try { p = JSON.parse(localStorage.getItem('cinematch-appearance:v1') || 'null'); } catch (e) {}
+          if (!p || p.version !== 1) p = {};
+          var legacy = localStorage.getItem('cinematch-theme');
+          var mode = p.mode === 'dark' || p.mode === 'light' ? p.mode
+            : (!p.mode && (legacy === 'dark' || legacy === 'light') ? legacy : 'system');
+          if (mode === 'system') mode = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+          var palette = BG[p.palette] ? p.palette : 'aurora';
+          var motion = p.motion === 'full' || p.motion === 'subtle' || p.motion === 'off' ? p.motion
+            : (window.matchMedia('(prefers-reduced-motion: reduce)').matches ? 'off' : 'subtle');
+          root.setAttribute('data-theme', mode);
+          root.setAttribute('data-palette', palette);
+          root.setAttribute('data-motion', motion);
+          root.style.colorScheme = mode;
+          root.style.setProperty('--boot-bg', BG[palette][mode === 'light' ? 1 : 0]);
         } catch (e) {}
       })();
     </script>
@@ -42,11 +55,8 @@
         display: flex;
         align-items: center;
         justify-content: center;
-        background: #07050f;
+        background: var(--boot-bg, #07050f);
         transition: opacity 280ms ease;
-      }
-      html[data-theme='light'] #boot-loader {
-        background: #faf9fd;
       }
       #boot-loader.hidden {
         opacity: 0;

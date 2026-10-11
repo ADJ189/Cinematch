@@ -92,8 +92,38 @@ const MAX_TAG_CHARS = 32;
 const MAX_REASON_CHARS = 160;
 const MAX_CANDIDATES = 40;
 
-function json(body: unknown, status = 200): Response {
-  return Response.json(body, { status, headers: JSON_HEADERS });
+// Best-effort fallback limiter, used ONLY when the RECOMMEND_LIMITER binding
+// isn't configured. State lives in this isolate's memory, so it is per-
+// isolate and resets on eviction — it blunts casual abuse and runaway loops
+// but is NOT a substitute for the Cloudflare rate-limiting binding (see
+// wrangler.jsonc), which is shared across the platform. Keys are bounded so
+// the map itself can't be used to exhaust memory.
+const FALLBACK_LIMIT = 10;
+const FALLBACK_WINDOW_MS = 60_000;
+const FALLBACK_MAX_KEYS = 500;
+const fallbackHits = new Map<string, number[]>();
+
+function fallbackAllow(key: string, now = Date.now()): boolean {
+  const recent = (fallbackHits.get(key) ?? []).filter((t) => now - t < FALLBACK_WINDOW_MS);
+  if (recent.length >= FALLBACK_LIMIT) {
+    fallbackHits.set(key, recent);
+    return false;
+  }
+  recent.push(now);
+  fallbackHits.delete(key); // re-insert so the oldest keys are evicted first
+  fallbackHits.set(key, recent);
+  while (fallbackHits.size > FALLBACK_MAX_KEYS) {
+    const oldest = fallbackHits.keys().next().value;
+    if (oldest === undefined) break;
+    fallbackHits.delete(oldest);
+  }
+  return true;
+}
+
+const AI_TIMEOUT_MS = 20_000;
+
+function json(body: unknown, status = 200, extra: Record<string, string> = {}): Response {
+  return Response.json(body, { status, headers: { ...JSON_HEADERS, ...extra } });
 }
 
 export default {
@@ -181,10 +211,12 @@ async function readBodyCapped(request: Request, maxBytes: number): Promise<strin
 async function handleRecommend(request: Request, env: Env): Promise<Response> {
   if (!env.AI) return json({ error: 'Not available.' }, 503);
 
+  const clientKey = request.headers.get('CF-Connecting-IP') ?? 'anonymous';
   if (env.RECOMMEND_LIMITER) {
-    const key = request.headers.get('CF-Connecting-IP') ?? 'anonymous';
-    const { success } = await env.RECOMMEND_LIMITER.limit({ key });
-    if (!success) return json({ error: 'Too many requests.' }, 429);
+    const { success } = await env.RECOMMEND_LIMITER.limit({ key: clientKey });
+    if (!success) return json({ error: 'Too many requests.' }, 429, { 'Retry-After': '60' });
+  } else if (!fallbackAllow(clientKey)) {
+    return json({ error: 'Too many requests.' }, 429, { 'Retry-After': '60' });
   }
 
   // Content-Length is only a hint (it can be absent or wrong), so the real
@@ -227,7 +259,12 @@ Return the ranking, best match first.`;
 
   let rawResponse: string;
   try {
-    const result = await env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
+    // A hung provider must not hold the request open indefinitely.
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const timeout = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new Error('Workers AI timed out')), AI_TIMEOUT_MS);
+    });
+    const call = env.AI.run('@cf/meta/llama-3.1-8b-instruct', {
       messages: [
         { role: 'system', content: systemPrompt },
         { role: 'user', content: userPrompt },
@@ -235,11 +272,13 @@ Return the ranking, best match first.`;
       temperature: 0.3,
       max_tokens: 900,
     });
+    const result = await Promise.race([call, timeout]).finally(() => clearTimeout(timer));
     rawResponse = result.response?.trim() ?? '';
   } catch (err) {
     // Provider detail stays in the Worker logs, never in the response.
     console.error('Workers AI call failed:', err instanceof Error ? err.message : err);
-    return json({ error: 'Recommendation service unavailable.' }, 502);
+    const timedOut = err instanceof Error && err.message === 'Workers AI timed out';
+    return json({ error: 'Recommendation service unavailable.' }, timedOut ? 504 : 502);
   }
 
   const cleaned = rawResponse
