@@ -198,3 +198,18 @@ TMDB, JustWatch (via TMDB), OMDb, and a handful of open-source libraries and des
 ## License
 
 Apache 2.0 — see [LICENSE](./LICENSE).
+
+
+## Testing
+
+```bash
+npm run test:install   # once: downloads Chromium for Playwright
+npm test               # builds with a dummy TMDB key, mocks TMDB, runs desktop + mobile
+npm run test:visual    # opt-in screenshot comparisons (see below)
+```
+
+The suite covers appearance persistence/validation, the quiz → rating → results flow, movie/TV id
+collisions, library re-import semantics, compare, the command menu, keyboard/focus rules, and
+axe accessibility scans. Visual baselines are intentionally **not committed** (rendering differs
+between machines): generate them where they'll be compared with
+`npm run test:visual -- --update-snapshots`.

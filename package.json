@@ -1,9 +1,9 @@
 {
   "name": "cinematch",
-  "version": "1.9.0",
+  "version": "1.10.0",
   "private": true,
   "type": "module",
-  "description": "CineMatch — a fast, framework-free movie & TV recommendation engine.",
+  "description": "CineMatch \u2014 a fast, framework-free movie & TV recommendation engine.",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
@@ -14,9 +14,15 @@
     "lint:fix": "oxlint --fix",
     "lhci": "npx --yes @lhci/cli autorun",
     "worker:dev": "wrangler dev",
-    "deploy": "npm run build && wrangler deploy"
+    "deploy": "npm run build && wrangler deploy",
+    "test": "playwright test --project=chromium-desktop --project=chromium-mobile",
+    "test:visual": "VISUAL=1 playwright test --project=chromium-desktop visual.spec.ts",
+    "test:install": "playwright install --with-deps chromium"
   },
   "devDependencies": {
+    "@axe-core/playwright": "4.10.2",
+    "@playwright/test": "1.56.0",
+    "@types/node": "22.15.0",
     "oxlint": "^1.87.0",
     "typescript": "^7.0.2",
     "vite": "^8.3.3",

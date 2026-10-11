@@ -2,6 +2,25 @@
 
 All notable changes to this project are documented here.
 
+## [1.10.0] — Theme Studio, compare, command menu, tests
+
+### Added
+- **Theme Studio:** up to three named *looks*, versioned appearance export/import (strict schema — unknown keys or out-of-list values reject the whole file; no ratings or profile data ever included), "Compare with before" preview, "Restore previous", undo/redo across all of it.
+- **More layout & effect controls:** results layout (poster grid / spotlight / compact list), poster labels, shadows, grain; advanced effects (particle density, connection lines, pointer response, click pulse, poster tilt, hover glow, transition intensity). Everything is bounded, adapts *down* on touch/low-power, and Off always wins.
+- **Artwork ambience:** a confined halo around your top pick tinted from its poster, with a safe fallback when the image can't be read. Decoration only.
+- **Compare shortlist:** pick 2–3 results, compare side by side (type, year, genres, TMDB rating, match reasons; unavailable fields say so rather than guessing). Keyboard- and screen-reader-operable; swipeable on phones.
+- **Command menu** (Ctrl/Cmd+K or "/") and shortcut help ("?") with documented conflict rules (never while typing, never on top of another dialog).
+- Shared-element poster → detail transition and a one-time top-pick light sweep (both progressive, off with Motion: Off / Minimal).
+- **Playwright + axe test suite** (desktop & mobile Chromium) and a CI job; opt-in visual-regression specs.
+- Worker: best-effort in-memory rate limit when the Cloudflare binding isn't configured, `Retry-After`, and a timeout on the AI call.
+
+### Fixed
+- **Muted/accent text below WCAG AA** in several light palettes (found by axe): all palettes now keep secondary/muted text ≥ 4.5:1 and accent text ≥ 4.6:1 on page, surface and tinted surfaces.
+- **Rating-card stars overflowed and overlapped** at 125% text; the results page could scroll sideways at large text + wide width.
+- **A choice made just before reloading or closing the tab could be lost** to the save debounce; saves now flush on page hide.
+- Focus trap now moves explicitly across dialog + toast; failed Letterboxd lookups no longer erase an earlier import.
+- Custom-accent warning also covers accents too close to the page colour.
+
 ## [1.9.0] — Appearance system, hero redesign, correctness fixes
 
 ### Added
