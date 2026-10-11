@@ -2,6 +2,16 @@
 
 All notable changes to this project are documented here.
 
+## [1.10.1] — Review fixes
+
+### Fixed
+- Command menu "Search titles for…" now works while the search page is already open (the screen consumes new targets itself) and no longer replays an old query later.
+- `?` no longer opens shortcut help on top of the compare dialog or a detail sheet.
+- Appearance drawer: applying/deleting a saved look no longer drops keyboard focus (the list is only rebuilt when looks change, and focus is handed to the equivalent control).
+- Focus trap skips roving-tabindex options parked at `-1`, so Tab enters each grouped control once and arrow keys keep their purpose.
+- Compare buttons are tracked in one self-pruning registry, so cards removed by "Different picks" are released immediately rather than lingering and repainting.
+- "Compare with before" now also drives the hero particle canvas (and every JS-resolved effect) from the previewed preferences, not just the CSS.
+
 ## [1.10.0] — Theme Studio, compare, command menu, tests
 
 ### Added
