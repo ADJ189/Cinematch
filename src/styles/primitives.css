@@ -219,3 +219,16 @@ p {
     min-height: var(--hit);
   }
 }
+
+/* A flex-column screen's children default to min-width:auto, so one
+   unbreakable row (a toolbar at 125% text, say) could widen the whole page
+   past the viewport. Let them shrink and wrap instead. */
+.screen > * {
+  min-width: 0;
+  max-width: 100%;
+}
+
+.results-toolbar,
+.results-header {
+  flex-wrap: wrap;
+}

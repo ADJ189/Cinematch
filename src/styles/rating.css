@@ -14,7 +14,9 @@
   width: 100%;
   max-width: var(--content-width);
   display: grid;
-  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  /* Column floor scales with the text-size setting so a card is always wide
+     enough for its five stars (it used to overflow at 125% text). */
+  grid-template-columns: repeat(auto-fill, minmax(calc(130px * var(--text-scale)), 1fr));
   gap: 16px;
 }
 
@@ -42,9 +44,15 @@
 .star-row {
   display: flex;
   gap: 2px;
+  max-width: 100%;
 }
 
 .star {
+  flex: 1 1 0;
+  min-width: 0;
+  padding: 0;
+  min-height: 32px;
+  text-align: center;
   font-size: 1.125rem;
   color: var(--border-strong);
   transition: color var(--dur-fast), transform var(--dur-fast) var(--ease-spring);
