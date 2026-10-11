@@ -232,7 +232,7 @@ const SHORTCUTS: [string, string][] = [
 ];
 
 export function openShortcutHelp(): void {
-  if (helpOpen || paletteOpen || isAppearanceOpen()) return;
+  if (anyDialogOpen()) return;
   helpOpen = true;
   const closeBtn = el('button', { class: 'modal-close', type: 'button', 'aria-label': 'Close keyboard shortcuts' });
   closeBtn.innerHTML = ICON.close;
