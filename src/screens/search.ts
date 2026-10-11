@@ -44,6 +44,7 @@ function toSimilarItem(item: CatalogItem, source: CatalogItem): ScoredItem {
 
 export function renderSearch(root: HTMLElement): () => void {
   let cancelled = false;
+  let unsubscribePending: (() => void) | null = null;
   let debounceTimer: number | null = null;
   let searchToken = 0;
   let searchAbort: AbortController | null = null;
@@ -97,16 +98,27 @@ export function renderSearch(root: HTMLElement): () => void {
 
     // A cast-member click elsewhere in the app lands here already pointed
     // at that person/title instead of an empty search box.
-    const pending = store.getState().pendingSearchTarget;
-    if (pending) {
+    //
+    // Targets also arrive while this screen is already open (the command menu
+    // can search from here). main.ts ignores same-screen updates, so the
+    // screen listens for them itself — otherwise the target would sit unused
+    // and replay the next time search is opened.
+    function consumePending() {
+      const pending = store.getState().pendingSearchTarget;
+      if (!pending) return;
       store.clearPendingSearchTarget();
       if (pending.kind === 'person') void selectPerson(pending.id, detailHost);
       else if (pending.kind === 'title') void selectTitleById(pending.id, pending.tmdbType, detailHost);
       else {
         input.value = pending.query.slice(0, 120);
+        input.focus({ preventScroll: true });
         void runSearch(input.value);
       }
     }
+    consumePending();
+    unsubscribePending = store.subscribe((state) => {
+      if (state.pendingSearchTarget && !cancelled) consumePending();
+    });
 
     async function runSearch(query: string) {
       const token = ++searchToken;
@@ -443,6 +455,8 @@ export function renderSearch(root: HTMLElement): () => void {
 
   return () => {
     cancelled = true;
+    unsubscribePending?.();
+    unsubscribePending = null;
     if (debounceTimer !== null) window.clearTimeout(debounceTimer);
     searchAbort?.abort();
   };
