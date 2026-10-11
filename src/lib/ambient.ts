@@ -17,7 +17,7 @@
 import {
   effectiveDensity,
   effectiveParticles,
-  getPreferences,
+  displayedPreferences,
   subscribeAppearance,
   type ParticleLevel,
 } from './appearance';
@@ -86,7 +86,7 @@ export class AmbientField {
 
   private configure(): void {
     if (this.destroyed) return;
-    const prefs = getPreferences();
+    const prefs = displayedPreferences();
     this.level = effectiveParticles(prefs);
     this.densityMul = { low: 0.6, medium: 1, high: 1.45 }[effectiveDensity(prefs)];
     this.linkAlpha = { off: 0, faint: 0.11, normal: 0.22 }[prefs.connections];

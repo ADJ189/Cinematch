@@ -377,18 +377,48 @@ export function openAppearancePanel(initialTab: Tab = 'themes'): void {
       },
     }, ['Save current look']);
 
+    // The list is rebuilt only when the saved looks themselves change.
+    // `onChange` fires on *every* appearance change and debounced save —
+    // rebuilding then would destroy the focused row mid-keyboard-use (so the
+    // next Tab would restart from the top of the drawer). When a rebuild is
+    // needed, focus is handed to the equivalent new control.
+    let lastSignature = '';
     const render = () => {
       const looks = listLooks();
-      list.replaceChildren(
-        ...(looks.length
-          ? looks.map((l) =>
-              el('div', { class: 'look-row' }, [
-                el('button', { class: 'btn-text', type: 'button', onclick: () => applyLook(l.id) }, [l.name]),
-                el('button', { class: 'btn-text-danger', type: 'button', 'aria-label': `Delete look ${l.name}`, onclick: () => deleteLook(l.id) }, ['Delete']),
-              ])
-            )
-          : [el('p', { class: 'ap-msg' }, ['No saved looks yet.'])])
-      );
+      const signature = JSON.stringify(looks.map((l) => [l.id, l.name]));
+      if (signature !== lastSignature) {
+        const focused = document.activeElement instanceof HTMLElement && list.contains(document.activeElement) ? document.activeElement : null;
+        const focusedId = focused?.dataset.lookId ?? null;
+        const focusedAction = focused?.dataset.lookAction ?? null;
+        const previousIds = lastSignature ? (JSON.parse(lastSignature) as [string, string][]).map((x) => x[0]) : [];
+        lastSignature = signature;
+
+        list.replaceChildren(
+          ...(looks.length
+            ? looks.map((l) =>
+                el('div', { class: 'look-row' }, [
+                  el('button', { class: 'btn-text', type: 'button', 'data-look-id': l.id, 'data-look-action': 'apply', onclick: () => applyLook(l.id) }, [l.name]),
+                  el('button', { class: 'btn-text-danger', type: 'button', 'data-look-id': l.id, 'data-look-action': 'delete', 'aria-label': `Delete look ${l.name}`, onclick: () => deleteLook(l.id) }, ['Delete']),
+                ])
+              )
+            : [el('p', { class: 'ap-msg' }, ['No saved looks yet.'])])
+        );
+
+        if (focused && focusedId) {
+          const same = list.querySelector<HTMLElement>(`[data-look-id="${focusedId}"][data-look-action="${focusedAction}"]`);
+          if (same) same.focus({ preventScroll: true });
+          else {
+            // The focused look was deleted: land on the look that took its place
+            // (or the previous one), else the name field — never on <body>.
+            const idx = previousIds.indexOf(focusedId);
+            const neighbour = looks[Math.min(idx, looks.length - 1)];
+            const target = neighbour ? list.querySelector<HTMLElement>(`[data-look-id="${neighbour.id}"][data-look-action="apply"]`) : null;
+            (target ?? nameInput).focus({ preventScroll: true });
+          }
+        } else if (focused) {
+          nameInput.focus({ preventScroll: true });
+        }
+      }
       saveBtn.toggleAttribute('disabled', looks.length >= MAX_LOOKS);
       nameInput.toggleAttribute('disabled', looks.length >= MAX_LOOKS);
     };

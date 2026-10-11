@@ -297,7 +297,7 @@ export function flushAppearanceSave(): void {
 
 // ── Effective (resolved) values ───────────────────────────────────────
 
-export function effectiveMode(p: AppearancePreferences = prefs): 'dark' | 'light' {
+export function effectiveMode(p: AppearancePreferences = displayedPreferences()): 'dark' | 'light' {
   if (p.mode !== 'system') return p.mode;
   if (mqLight?.matches) return 'light';
   if (mqDark?.matches) return 'dark';
@@ -310,7 +310,7 @@ export function systemRequestsReducedMotion(): boolean {
 
 /** System behaves like Subtle, except non-essential continuous/large
  * movement is off when the OS asks for reduced motion. */
-export function effectiveMotion(p: AppearancePreferences = prefs): 'full' | 'subtle' | 'off' {
+export function effectiveMotion(p: AppearancePreferences = displayedPreferences()): 'full' | 'subtle' | 'off' {
   if (p.motion === 'system') return systemRequestsReducedMotion() ? 'off' : 'subtle';
   return p.motion;
 }
@@ -326,12 +326,12 @@ function isLowPower(): boolean {
 /** The hero particle level actually used. A user-selected Off always wins;
  * otherwise the level adapts *downward* on touch and low-power devices. */
 /** Density multiplier; "high" is desktop-only and strictly bounded. */
-export function effectiveDensity(p: AppearancePreferences = prefs): 'low' | 'medium' | 'high' {
+export function effectiveDensity(p: AppearancePreferences = displayedPreferences()): 'low' | 'medium' | 'high' {
   if ((isCoarsePointer() || isLowPower()) && p.particleDensity === 'high') return 'medium';
   return p.particleDensity;
 }
 
-export function effectiveParticles(p: AppearancePreferences = prefs): ParticleLevel {
+export function effectiveParticles(p: AppearancePreferences = displayedPreferences()): ParticleLevel {
   if (p.particles === 'off' || effectiveMotion(p) === 'off') return 'off';
   let level = LEVELS.indexOf(p.particles);
   if (mqCoarse?.matches) level = Math.min(level, LEVELS.indexOf('balanced')); // no pointer response without a hover pointer
@@ -345,7 +345,7 @@ export function isCoarsePointer(): boolean {
 
 export type Tilt = 'off' | 'gentle';
 /** Tilt needs a hover-capable pointer and real motion; otherwise Off. */
-export function effectiveTilt(p: AppearancePreferences = prefs): Tilt {
+export function effectiveTilt(p: AppearancePreferences = displayedPreferences()): Tilt {
   if (p.posterTilt === 'off' || effectiveMotion(p) === 'off' || isCoarsePointer()) return 'off';
   return 'gentle';
 }
@@ -353,10 +353,19 @@ export function effectiveTilt(p: AppearancePreferences = prefs): Tilt {
 /** Artwork ambience adapts down on touch / low-power devices, never up,
  * and a user-selected Off always wins. The static (non-animated) halo is
  * still allowed under reduced motion. */
-export function effectiveAmbience(p: AppearancePreferences = prefs): 'off' | 'subtle' | 'balanced' {
+export function effectiveAmbience(p: AppearancePreferences = displayedPreferences()): 'off' | 'subtle' | 'balanced' {
   if (p.artworkAmbience === 'off') return 'off';
   if ((isCoarsePointer() || isLowPower()) && p.artworkAmbience === 'balanced') return 'subtle';
   return p.artworkAmbience;
+}
+
+/** What the page is *showing*: the live preferences, or — while "Compare
+ * with before" is on — the baseline being previewed. Everything that
+ * resolves effective values (mode, motion, particles, tilt, …) reads this,
+ * so the hero canvas and other JS-driven effects follow the preview exactly
+ * like the CSS does, without any of it being saved. */
+export function displayedPreferences(): AppearancePreferences {
+  return peeking && baseline ? baseline : prefs;
 }
 
 export function getPreferences(): AppearancePreferences {

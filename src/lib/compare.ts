@@ -99,21 +99,64 @@ export function buildCompareButton(item: ScoredItem, onFull?: () => void): HTMLE
     if (toggleCompare(item) === 'full') onFull?.();
     paint();
   });
-  // Repaint on every selection change; drop the listener once the button
-  // has been attached and later removed from the page (a screen re-draw), so
-  // long sessions don't accumulate dead listeners.
-  let seen = false;
-  let unsub: (() => void) | undefined;
-  unsub = subscribeCompare(() => {
-    if (btn.isConnected) seen = true;
-    else if (seen) {
-      unsub?.();
-      return;
-    }
-    paint();
-  });
   paint();
+  registerButton(btn, paint);
   return btn;
+}
+
+// One shared subscription repaints every live Compare button. Detached
+// buttons (cards removed by "Different picks", a re-sort, a screen re-draw)
+// are pruned both when a new button is registered and on every change, so a
+// card that is dropped *before* any comparison activity can't linger — the
+// registry never holds more than the buttons currently on the page plus the
+// ones just built.
+interface LiveButton {
+  paint: () => void;
+  /** Has it ever been attached to the page? */
+  seen: boolean;
+  born: number;
+}
+
+const liveButtons = new Map<HTMLElement, LiveButton>();
+const UNATTACHED_GRACE_MS = 10_000;
+let registrySubscribed = false;
+
+function pruneButtons() {
+  const now = Date.now();
+  for (const [btn, entry] of liveButtons) {
+    if (btn.isConnected) entry.seen = true;
+    // Attached once and gone now → its card was removed: drop it.
+    else if (entry.seen) liveButtons.delete(btn);
+    // Never attached (built mid-draw, or discarded before mounting): give a
+    // draw time to attach it, then drop it so it can't leak.
+    else if (now - entry.born > UNATTACHED_GRACE_MS) liveButtons.delete(btn);
+  }
+}
+
+function registerButton(btn: HTMLElement, paint: () => void) {
+  pruneButtons();
+  liveButtons.set(btn, { paint, seen: false, born: Date.now() });
+  // A draw builds and mounts its cards in one synchronous pass, so by the
+  // next microtask an attached button is on the page; marking it then means a
+  // card removed straight afterwards (e.g. "Different picks") is dropped at
+  // the very next prune instead of waiting out the grace period.
+  queueMicrotask(() => {
+    const entry = liveButtons.get(btn);
+    if (entry && btn.isConnected) entry.seen = true;
+  });
+  if (!registrySubscribed) {
+    registrySubscribed = true;
+    subscribeCompare(() => {
+      pruneButtons();
+      for (const entry of liveButtons.values()) entry.paint();
+    });
+  }
+}
+
+/** Test/diagnostic hook: how many Compare buttons are still tracked. */
+export function trackedCompareButtons(): number {
+  pruneButtons();
+  return liveButtons.size;
 }
 
 /** Sticky tray summarising the selection with the entry points. */

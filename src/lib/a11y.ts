@@ -21,7 +21,12 @@ export function trapFocus(
 
   const regions = () => [container, ...(opts.also?.() ?? [])].filter((r): r is HTMLElement => !!r && document.contains(r));
   const isVisible = (n: HTMLElement) => n.offsetParent !== null || n === document.activeElement || getComputedStyle(n).position === 'fixed';
-  const focusables = () => regions().flatMap((r) => Array.from(r.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(isVisible));
+  // `tabIndex >= 0` drops controls a roving-tabindex group has parked at -1
+  // (inactive tabs / radio choices): native Tab skips them, and so must the
+  // explicit order below, or every group would add a stop per option and
+  // defeat its arrow-key navigation.
+  const focusables = () =>
+    regions().flatMap((r) => Array.from(r.querySelectorAll<HTMLElement>(FOCUSABLE)).filter((n) => n.tabIndex >= 0 && isVisible(n)));
 
   (opts.initialFocus ?? focusables()[0] ?? container).focus({ preventScroll: true });
 
