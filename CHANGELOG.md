@@ -2,6 +2,55 @@
 
 All notable changes to this project are documented here.
 
+## [1.10.1] — Review fixes
+
+### Fixed
+- Command menu "Search titles for…" now works while the search page is already open (the screen consumes new targets itself) and no longer replays an old query later.
+- `?` no longer opens shortcut help on top of the compare dialog or a detail sheet.
+- Appearance drawer: applying/deleting a saved look no longer drops keyboard focus (the list is only rebuilt when looks change, and focus is handed to the equivalent control).
+- Focus trap skips roving-tabindex options parked at `-1`, so Tab enters each grouped control once and arrow keys keep their purpose.
+- Compare buttons are tracked in one self-pruning registry, so cards removed by "Different picks" are released immediately rather than lingering and repainting.
+- "Compare with before" now also drives the hero particle canvas (and every JS-resolved effect) from the previewed preferences, not just the CSS.
+
+## [1.10.0] — Theme Studio, compare, command menu, tests
+
+### Added
+- **Theme Studio:** up to three named *looks*, versioned appearance export/import (strict schema — unknown keys or out-of-list values reject the whole file; no ratings or profile data ever included), "Compare with before" preview, "Restore previous", undo/redo across all of it.
+- **More layout & effect controls:** results layout (poster grid / spotlight / compact list), poster labels, shadows, grain; advanced effects (particle density, connection lines, pointer response, click pulse, poster tilt, hover glow, transition intensity). Everything is bounded, adapts *down* on touch/low-power, and Off always wins.
+- **Artwork ambience:** a confined halo around your top pick tinted from its poster, with a safe fallback when the image can't be read. Decoration only.
+- **Compare shortlist:** pick 2–3 results, compare side by side (type, year, genres, TMDB rating, match reasons; unavailable fields say so rather than guessing). Keyboard- and screen-reader-operable; swipeable on phones.
+- **Command menu** (Ctrl/Cmd+K or "/") and shortcut help ("?") with documented conflict rules (never while typing, never on top of another dialog).
+- Shared-element poster → detail transition and a one-time top-pick light sweep (both progressive, off with Motion: Off / Minimal).
+- **Playwright + axe test suite** (desktop & mobile Chromium) and a CI job; opt-in visual-regression specs.
+- Worker: best-effort in-memory rate limit when the Cloudflare binding isn't configured, `Retry-After`, and a timeout on the AI call.
+
+### Fixed
+- **Muted/accent text below WCAG AA** in several light palettes (found by axe): all palettes now keep secondary/muted text ≥ 4.5:1 and accent text ≥ 4.6:1 on page, surface and tinted surfaces.
+- **Rating-card stars overflowed and overlapped** at 125% text; the results page could scroll sideways at large text + wide width.
+- **A choice made just before reloading or closing the tab could be lost** to the save debounce; saves now flush on page hide.
+- Focus trap now moves explicitly across dialog + toast; failed Letterboxd lookups no longer erase an earlier import.
+- Custom-accent warning also covers accents too close to the page colour.
+
+## [1.9.0] — Appearance system, hero redesign, correctness fixes
+
+### Added
+- **Appearance drawer** (header → sliders icon): System/Dark/Light, 8 hand-tuned palettes (each with separate dark and light maps, contrast-checked), custom accent with a contrast warning, 8 self-hosted font pairings, text size, line spacing, content width, density, poster size, card corners, soft-glass surfaces, high contrast, reduced transparency, motion profile and hero-particle level. Live preview, auto-save, undo/redo, per-section and global reset (appearance only — never ratings or watchlist), "Surprise me", a one-time skippable "Choose your vibe".
+- **Landing hero redesign:** product-as-artwork sample match card (CSS only), calmer layout, phone-first CTA, honest copy.
+- **One ambient canvas** (`ambient.ts`) replacing the CPU fluid solver: pauses when hidden/off-screen, capped DPR and particle count, pointer response only in Interactive mode on a hover pointer, fully torn down on leave.
+- **Toasts** with Undo for watchlist/appearance actions; View-Transition screen changes (plain swap where unsupported or motion Off); scroll-to-top and heading focus on navigation.
+- Fonts are bundled (Fontsource) — **no Google Fonts requests**; only the default pairing loads on first paint.
+
+### Fixed
+- **Movie/TV identity collisions.** TMDB reuses numeric ids across movies and shows, so a rating, watchlist entry or "already seen" filter for one could hit the other. Everything now keys on `movie:123` / `tv:123` (ratings, history, watchlist, engine, caches, DOM selectors).
+- **"Who's watching" did nothing.** The quiz collected it but nothing used it; it now tilts genre/vibe weights (family away from horror/dark thrillers, friends toward comedy/adventure, date toward drama/warm).
+- **Re-importing a smaller Letterboxd export left stale ratings steering results.** The latest import now replaces the previous imported library; ratings you gave in the app are never touched.
+- **Landing could stay dimmed** after leaving a lazy screen mid-load; **ambient loop could start after you had already left** the landing screen.
+- Search: a title chosen elsewhere in the app (pending title target) was ignored.
+- Open detail sheet is closed when its screen unmounts; stale async re-curation can no longer overwrite a newer one.
+- Misleading "offline demo mode" warning replaced with an accurate missing-TMDB-key message.
+- Profile popover: Escape, `aria-expanded`, focus handling; logo no longer reloads the page; light-mode primary-button text contrast.
+- CI: duplicate `permissions` key removed; Node 22.
+
 ## [1.8.0] — Audit fixes, security hardening, cinematic redesign
 
 ### Security

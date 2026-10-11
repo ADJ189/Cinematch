@@ -10,8 +10,10 @@
 //   3. Weighting rating-derived taste signal higher than one-off quiz picks,
 //      since it's a stronger preference signal.
 
+import { keyOf, mediaKey } from './media-key';
 import type {
   CatalogItem,
+  Company,
   Genre,
   GenreAffinityMap,
   QuizAnswers,
@@ -23,17 +25,35 @@ import type {
 
 const VIBES = new Set<string>(['dark', 'light', 'intellectual', 'feelgood', 'epic']);
 
+const COMPANY_TILT: Record<Company, { genre: Record<string, number>; vibe: Record<string, number> }> = {
+  solo: { genre: {}, vibe: {} },
+  date: { genre: { drama: 0.35, comedy: 0.35, horror: -0.4 }, vibe: { feelgood: 0.35, light: 0.2 } },
+  friends: { genre: { comedy: 0.4, horror: 0.25, adventure: 0.3 }, vibe: { light: 0.2 } },
+  family: {
+    genre: { cartoon: 0.6, adventure: 0.5, comedy: 0.3, horror: -1.4, thriller: -0.9 },
+    vibe: { feelgood: 0.5, light: 0.4, dark: -1.2 },
+  },
+};
+
 export class RecommendationEngine {
   private genre: GenreAffinityMap = {};
   private vibe: GenreAffinityMap = {};
   private answers: QuizAnswers = {};
-  private ratings: Record<number, number> = {};
+  private ratings: Record<string, number> = {};
   private ratedSeeds: RatingSeed[] = [];
 
   processQuiz(answers: QuizAnswers): void {
     this.answers = answers;
     if (answers.mood) this.genre[answers.mood] = (this.genre[answers.mood] ?? 0) + 1.0;
     if (answers.vibe) this.vibe[answers.vibe] = (this.vibe[answers.vibe] ?? 0) + 1.0;
+    // "Who's watching" shifts the weights rather than hard-filtering: a
+    // family night leans toward adventure/animation/warm titles and away
+    // from horror and dark thrillers; friends lean toward comedy, horror
+    // and adventure; a date leans toward drama, comedy and warm picks.
+    // Solo has no adjustment — it is the unmodified taste profile.
+    const tilt = COMPANY_TILT[answers.company ?? 'solo'];
+    for (const [tag, w] of Object.entries(tilt.genre)) this.genre[tag] = (this.genre[tag] ?? 0) + w;
+    for (const [tag, w] of Object.entries(tilt.vibe)) this.vibe[tag] = (this.vibe[tag] ?? 0) + w;
     if (answers.contentType && answers.contentType !== 'live_action') {
       // An explicit style pick (anime/cartoon/sitcom) is more specific than
       // the mood tap, so it's weighted a little higher.
@@ -48,16 +68,15 @@ export class RecommendationEngine {
    * engine to avoid re-introducing a hardcoded catalog dependency here).
    */
   processRatings(
-    ratings: Record<number, RatingValue>,
+    ratings: Record<string, RatingValue>,
     seeds: RatingSeed[],
-    signalsBySeedId: Record<number, string[]>
+    signalsBySeedKey: Record<string, string[]>
   ): void {
     this.ratings = { ...this.ratings, ...ratings };
     this.ratedSeeds = seeds;
 
-    for (const [idStr, rating] of Object.entries(ratings)) {
-      const id = Number(idStr);
-      const signals = signalsBySeedId[id] ?? [];
+    for (const [key, rating] of Object.entries(ratings)) {
+      const signals = signalsBySeedKey[key] ?? [];
       // -1 (hated) to +1 (loved), weighted higher than a single quiz tap
       // since a rating reflects an actual watched title, not a mood guess.
       const weight = ((rating - 3) / 2) * 0.7;
@@ -79,7 +98,7 @@ export class RecommendationEngine {
    * the app gets.
    */
   processResultRating(item: CatalogItem, rating: number, weightScale = 1): void {
-    this.ratings = { ...this.ratings, [item.id]: rating };
+    this.ratings = { ...this.ratings, [keyOf(item)]: rating };
     const weight = ((rating - 3) / 2) * 0.85 * weightScale;
     for (const g of item.genres) this.genre[g] = (this.genre[g] ?? 0) + weight;
     for (const v of item.vibe) this.vibe[v] = (this.vibe[v] ?? 0) + weight;
@@ -117,7 +136,7 @@ export class RecommendationEngine {
     return s;
   }
 
-  private getReasonsFor(item: CatalogItem, signalsBySeedId: Record<number, string[]>): string[] {
+  private getReasonsFor(item: CatalogItem, signalsBySeedKey: Record<string, string[]>): string[] {
     const out: string[] = [];
     if (this.answers.mood && item.genres.includes(this.answers.mood)) {
       out.push(`Matches your ${this.answers.mood} pick`);
@@ -139,14 +158,14 @@ export class RecommendationEngine {
 
     const loved = Object.entries(this.ratings)
       .filter(([, r]) => r >= 4)
-      .map(([id]) => Number(id));
-    for (const hId of loved) {
-      const sigs = signalsBySeedId[hId] ?? [];
+      .map(([key]) => key);
+    for (const hKey of loved) {
+      const sigs = signalsBySeedKey[hKey] ?? [];
       const overlaps = sigs.some(
         (g) => item.genres.includes(g as Genre) || item.vibe.includes(g as Vibe)
       );
       if (overlaps) {
-        const title = this.ratedSeeds.find((t) => t.id === hId)?.title;
+        const title = this.ratedSeeds.find((t) => mediaKey(t.tmdbType, t.id) === hKey)?.title;
         if (title) {
           out.push(`Similar to ${title}, which you loved`);
           break;
@@ -158,7 +177,7 @@ export class RecommendationEngine {
     return out.slice(0, 3);
   }
 
-  getResults(candidates: CatalogItem[], signalsBySeedId: Record<number, string[]>): ScoredItem[] {
+  getResults(candidates: CatalogItem[], signalsBySeedKey: Record<string, string[]>): ScoredItem[] {
     const { era } = this.answers;
 
     // De-dupe by id (TMDB can return the same title across paginated pages),
@@ -170,10 +189,11 @@ export class RecommendationEngine {
     // genre/vibe match was strong, still outscore in-era titles. Filtering
     // here guarantees the era you pick is the era you get, regardless of
     // how the item entered the pool.
-    const seen = new Set<number>();
+    const seen = new Set<string>();
     const pool = candidates.filter((c) => {
-      if (seen.has(c.id)) return false;
-      seen.add(c.id);
+      const k = keyOf(c);
+      if (seen.has(k)) return false;
+      seen.add(k);
       if (era && era !== 'any' && c.era !== era) return false;
       return true;
     });
@@ -193,7 +213,7 @@ export class RecommendationEngine {
         rankPct: Math.round(((raw - minScore) / range) * 100),
         score: raw,
         fit: matchPct >= 85 ? 'strong' : matchPct >= 68 ? 'good' : 'stretch',
-        reasons: this.getReasonsFor(item, signalsBySeedId),
+        reasons: this.getReasonsFor(item, signalsBySeedKey),
         matchedTags: this.matchedTagsFor(item),
       };
     });

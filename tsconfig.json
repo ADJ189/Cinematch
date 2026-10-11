@@ -17,5 +17,5 @@
     "exactOptionalPropertyTypes": false,
     "forceConsistentCasingInFileNames": true
   },
-  "include": ["src", "worker", "vite.config.ts"]
+  "include": ["src", "worker", "tests", "vite.config.ts", "playwright.config.ts"]
 }

@@ -43,18 +43,24 @@ function createStore() {
       state = { ...state, quizAnswers: answers };
       notify();
     },
-    setRating(id: number, value: RatingValue) {
+    setRating(id: string, value: RatingValue) {
       state = { ...state, ratings: { ...state.ratings, [id]: value } };
       notify();
     },
-    importRatings(ratings: Record<number, RatingValue>) {
+    /** Replaces the session ratings wholesale (used after a library
+     * re-import so superseded imported ratings don't linger). */
+    replaceRatings(ratings: Record<string, RatingValue>) {
+      state = { ...state, ratings: { ...ratings } };
+      notify();
+    },
+    importRatings(ratings: Record<string, RatingValue>) {
       state = { ...state, ratings: { ...state.ratings, ...ratings } };
       notify();
     },
     /** Set once the rating screen finishes building its (possibly
      * genre-weighted) calibration list, so the results engine scores
      * against the same seeds/signals the user actually rated. */
-    setRatingPool(seeds: RatingSeed[], signals: Record<number, string[]>) {
+    setRatingPool(seeds: RatingSeed[], signals: Record<string, string[]>) {
       state = { ...state, ratingSeeds: seeds, ratingSignals: signals };
       notify();
     },

@@ -32,11 +32,9 @@ depends on.
 
 ## Fonts
 
-- **[Sora](https://fonts.google.com/specimen/Sora)**,
-  **[Inter](https://fonts.google.com/specimen/Inter)**, and
-  **[JetBrains Mono](https://fonts.google.com/specimen/JetBrains+Mono)**
-  — served via Google Fonts, all licensed under the
-  [SIL Open Font License](https://scripts.sil.org/OFL).
+- **Sora, Inter, Space Grotesk, Manrope, DM Sans, Bricolage Grotesque, Fraunces, Plus Jakarta Sans, IBM Plex Sans and IBM Plex Mono**
+  — self-hosted via [Fontsource](https://fontsource.org) (no Google Fonts requests), all licensed under the
+  [SIL Open Font License 1.1](https://openfontlicense.org/).
 
 ## Design references
 

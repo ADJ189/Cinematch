@@ -10,7 +10,7 @@
 }
 
 .credits-directors {
-  font-size: 13px;
+  font-size: 0.8125rem;
   color: var(--text-secondary);
 }
 
@@ -63,12 +63,12 @@
   justify-content: center;
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: 18px;
+  font-size: 1.125rem;
   color: var(--text-muted);
 }
 
 .credits-cast-name {
-  font-size: 11px;
+  font-size: 0.6875rem;
   font-weight: 600;
   color: var(--text-primary);
   white-space: nowrap;
@@ -78,7 +78,7 @@
 }
 
 .credits-cast-character {
-  font-size: 10px;
+  font-size: 0.625rem;
   color: var(--text-muted);
   white-space: nowrap;
   overflow: hidden;
@@ -104,7 +104,7 @@
   color: var(--text-muted);
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: 13px;
+  font-size: 0.8125rem;
 }
 
 /* ── Person page hero ─────────────────────────────────────────────── */
@@ -125,11 +125,11 @@
   color: var(--text-muted);
   font-family: var(--font-display);
   font-weight: 700;
-  font-size: 42px;
+  font-size: 2.625rem;
 }
 
 .person-meta {
-  font-size: 12px;
+  font-size: 0.75rem;
   color: var(--text-muted);
 }
 
