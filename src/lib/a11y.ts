@@ -22,7 +22,6 @@ export function trapFocus(
   const regions = () => [container, ...(opts.also?.() ?? [])].filter((r): r is HTMLElement => !!r && document.contains(r));
   const isVisible = (n: HTMLElement) => n.offsetParent !== null || n === document.activeElement || getComputedStyle(n).position === 'fixed';
   const focusables = () => regions().flatMap((r) => Array.from(r.querySelectorAll<HTMLElement>(FOCUSABLE)).filter(isVisible));
-  const inside = (n: Element | null) => !!n && regions().some((r) => r.contains(n));
 
   (opts.initialFocus ?? focusables()[0] ?? container).focus({ preventScroll: true });
 
@@ -38,16 +37,17 @@ export function trapFocus(
       e.preventDefault();
       return;
     }
-    const first = nodes[0]!;
-    const last = nodes[nodes.length - 1]!;
-    const active = document.activeElement;
-    if (e.shiftKey && (active === first || !inside(active))) {
-      e.preventDefault();
-      last.focus();
-    } else if (!e.shiftKey && (active === last || !inside(active))) {
-      e.preventDefault();
-      first.focus();
-    }
+    // Move focus explicitly through `nodes` (container first, then the
+    // `also` regions) instead of trusting the browser. Document order can
+    // differ from that list — a toast host created before the dialog sits
+    // *earlier* in the DOM — so native Tab could step out to the page
+    // behind the dialog from the last control or from the toast.
+    const active = document.activeElement as HTMLElement | null;
+    const index = active ? nodes.indexOf(active) : -1;
+    const step = e.shiftKey ? -1 : 1;
+    const nextIndex = index === -1 ? (e.shiftKey ? nodes.length - 1 : 0) : (index + step + nodes.length) % nodes.length;
+    e.preventDefault();
+    nodes[nextIndex]!.focus({ preventScroll: true });
   }
 
   document.addEventListener('keydown', onKey);

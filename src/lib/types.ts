@@ -120,7 +120,11 @@ export interface AppState {
   pendingSearchTarget: SearchTarget | null;
 }
 
-export type SearchTarget = { kind: 'title'; id: number; tmdbType: 'movie' | 'tv' } | { kind: 'person'; id: number };
+export type SearchTarget =
+  | { kind: 'title'; id: number; tmdbType: 'movie' | 'tv' }
+  | { kind: 'person'; id: number }
+  /** Opens search with the box pre-filled (command palette). */
+  | { kind: 'query'; query: string };
 
 /** A cast or crew credit as returned by /movie|tv/{id}/credits. */
 export interface CastMember {

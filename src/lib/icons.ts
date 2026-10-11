@@ -34,6 +34,10 @@ export const ICON = {
 
   metacritic: `<svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="1.5" y="1.5" width="17" height="17" rx="3.5" stroke="currentColor" stroke-width="1.4"/><text x="10" y="14" font-size="10" font-weight="700" text-anchor="middle" fill="currentColor" font-family="sans-serif">M</text></svg>`,
 
+  compare: `<svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><rect x="2.5" y="4" width="7" height="12" rx="1.6" stroke="currentColor" stroke-width="1.5"/><rect x="10.5" y="4" width="7" height="12" rx="1.6" stroke="currentColor" stroke-width="1.5"/></svg>`,
+
+  command: `<svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M6.5 3.5a2 2 0 1 0 0 4h7a2 2 0 1 0-2-2v9a2 2 0 1 0 2-2h-7a2 2 0 1 0 2 2v-9a2 2 0 1 0-2 2Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>`,
+
   sliders: `<svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M3 5.5h7M14 5.5h3M3 14.5h3M10 14.5h7" stroke="currentColor" stroke-width="1.6" stroke-linecap="round"/><circle cx="12" cy="5.5" r="2" stroke="currentColor" stroke-width="1.6"/><circle cx="8" cy="14.5" r="2" stroke="currentColor" stroke-width="1.6"/></svg>`,
 
   check: `<svg viewBox="0 0 20 20" fill="none" xmlns="http://www.w3.org/2000/svg"><path d="M4.5 10.5l3.6 3.6 7.4-8" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>`,

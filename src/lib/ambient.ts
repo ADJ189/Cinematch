@@ -15,6 +15,7 @@
 //   • tears down every frame, observer and listener in destroy().
 
 import {
+  effectiveDensity,
   effectiveParticles,
   getPreferences,
   subscribeAppearance,
@@ -44,6 +45,10 @@ export class AmbientField {
   private h = 0;
   private dpr = 1;
   private level: ParticleLevel = 'off';
+  private densityMul = 1;
+  private linkAlpha = 0.22;
+  private pointerForce = 0.05;
+  private pulseOn = false;
   private visible = true;
   private destroyed = false;
   private running = false;
@@ -81,11 +86,17 @@ export class AmbientField {
 
   private configure(): void {
     if (this.destroyed) return;
-    this.level = effectiveParticles(getPreferences());
+    const prefs = getPreferences();
+    this.level = effectiveParticles(prefs);
+    this.densityMul = { low: 0.6, medium: 1, high: 1.45 }[effectiveDensity(prefs)];
+    this.linkAlpha = { off: 0, faint: 0.11, normal: 0.22 }[prefs.connections];
+    this.pointerForce = { off: 0, gentle: 0.05, noticeable: 0.1 }[prefs.pointerResponse];
+    this.pulseOn = prefs.clickPulse === 'on' && this.level !== 'off' && window.matchMedia('(hover: hover) and (pointer: fine)').matches;
     this.readColors();
     this.canvas.dataset.level = this.level;
     this.canvas.hidden = this.level === 'off';
-    this.setPointerTracking(this.level === 'interactive' && window.matchMedia('(hover: hover) and (pointer: fine)').matches);
+    const fine = window.matchMedia('(hover: hover) and (pointer: fine)').matches;
+    this.setPointerTracking((this.level === 'interactive' && this.pointerForce > 0 && fine) || this.pulseOn);
     this.resize();
     this.sync();
   }
@@ -109,7 +120,8 @@ export class AmbientField {
     this.ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
 
     const cfg = LEVEL_CONFIG[this.level];
-    const target = Math.min(cfg.max, Math.max(14, Math.round((this.w * this.h) / 100000 * cfg.per100k)));
+    // Strict ceiling even on High: never more than 1.3x the level's max.
+    const target = Math.min(Math.round(cfg.max * 1.3), Math.max(14, Math.round(((this.w * this.h) / 100000) * cfg.per100k * this.densityMul)));
     while (this.particles.length < target) this.particles.push(this.spawn(cfg.speed));
     this.particles.length = Math.min(this.particles.length, target);
     for (const p of this.particles) {
@@ -157,14 +169,14 @@ export class AmbientField {
     const cfg = LEVEL_CONFIG[this.level];
     const reach = 160;
     for (const p of this.particles) {
-      if (cfg.pointer && this.pointer.active) {
+      if (cfg.pointer && this.pointerForce > 0 && this.pointer.active) {
         const dx = p.x - this.pointer.x;
         const dy = p.y - this.pointer.y;
         const d2 = dx * dx + dy * dy;
         if (d2 < reach * reach && d2 > 1) {
           // Gentle repel that eases out with distance — never a snap.
           const d = Math.sqrt(d2);
-          const f = ((reach - d) / reach) * 0.05 * dt;
+          const f = ((reach - d) / reach) * this.pointerForce * dt;
           p.vx += (dx / d) * f;
           p.vy += (dy / d) * f;
         }
@@ -194,7 +206,7 @@ export class AmbientField {
     const link2 = cfg.link * cfg.link;
     const ps = this.particles;
     ctx.lineWidth = 1;
-    for (let i = 0; i < ps.length; i++) {
+    for (let i = 0; this.linkAlpha > 0 && i < ps.length; i++) {
       const a = ps[i]!;
       for (let j = i + 1; j < ps.length; j++) {
         const b = ps[j]!;
@@ -202,7 +214,7 @@ export class AmbientField {
         const dy = a.y - b.y;
         const d2 = dx * dx + dy * dy;
         if (d2 > link2) continue;
-        const alpha = (1 - d2 / link2) * 0.22;
+        const alpha = (1 - d2 / link2) * this.linkAlpha;
         ctx.strokeStyle = `rgba(${this.c1},${alpha.toFixed(3)})`;
         ctx.beginPath();
         ctx.moveTo(a.x, a.y);
@@ -228,6 +240,25 @@ export class AmbientField {
     this.pointer.y = e.clientY - rect.top;
     this.pointer.active = true;
   };
+  /** A single short, soft outward nudge — particles ease back on their own. */
+  private onPointerDown = (e: PointerEvent) => {
+    if (!this.pulseOn || e.pointerType !== 'mouse' || this.destroyed) return;
+    const rect = this.canvas.getBoundingClientRect();
+    const x = e.clientX - rect.left;
+    const y = e.clientY - rect.top;
+    if (x < 0 || y < 0 || x > rect.width || y > rect.height) return;
+    for (const p of this.particles) {
+      const dx = p.x - x;
+      const dy = p.y - y;
+      const d = Math.hypot(dx, dy);
+      if (d < 200 && d > 1) {
+        const f = (1 - d / 200) * 1.4;
+        p.vx += (dx / d) * f;
+        p.vy += (dy / d) * f;
+      }
+    }
+  };
+
   private onPointerLeave = () => {
     this.pointer.active = false;
   };
@@ -237,9 +268,11 @@ export class AmbientField {
     this.pointerTracking = on;
     if (on) {
       window.addEventListener('pointermove', this.onPointerMove, { passive: true });
+      window.addEventListener('pointerdown', this.onPointerDown, { passive: true });
       document.addEventListener('pointerleave', this.onPointerLeave);
     } else {
       window.removeEventListener('pointermove', this.onPointerMove);
+      window.removeEventListener('pointerdown', this.onPointerDown);
       document.removeEventListener('pointerleave', this.onPointerLeave);
       this.pointer.active = false;
     }

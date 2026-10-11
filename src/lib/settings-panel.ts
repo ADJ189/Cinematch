@@ -9,11 +9,24 @@
 import { trapFocus } from './a11y';
 import {
   accentForeground,
+  applyLook,
+  contrastRatio,
   canRedo,
   canUndo,
   DEFAULT_PREFERENCES,
+  deleteLook,
   effectiveMode,
+  exportAppearance,
   getPreferences,
+  hasBaselineDifference,
+  importAppearance,
+  isPeeking,
+  listLooks,
+  markAppearanceBaseline,
+  MAX_LOOKS,
+  peekBaseline,
+  restoreBaseline,
+  saveLook,
   isAppearancePersisted,
   isValidHex,
   PALETTES,
@@ -210,9 +223,15 @@ export function openAppearancePanel(initialTab: Tab = 'themes'): void {
         hexInput.value = acc;
         picker.value = acc;
         const fg = accentForeground(acc);
-        accentNote.textContent = fg.ok
-          ? 'Accent applied to buttons, selections and particles. Success and error colours are unchanged.'
-          : `Heads up: this accent only reaches ${fg.ratio.toFixed(1)}:1 contrast with button text — it may be hard to read. A different shade is safer.`;
+        // Two separate risks: text on the accent (buttons), and the accent
+        // against the page itself (borders, selected states, focus cues).
+        const pageBg = getComputedStyle(document.documentElement).getPropertyValue('--bg-0').trim();
+        const onPage = /^#[0-9a-f]{6}$/i.test(pageBg) ? contrastRatio(acc, pageBg) : 21;
+        accentNote.textContent = !fg.ok
+          ? `Heads up: this accent only reaches ${fg.ratio.toFixed(1)}:1 contrast with button text \u2014 it may be hard to read. A different shade is safer.`
+          : onPage < 3
+            ? `Heads up: this accent is very close to the page background (${onPage.toFixed(1)}:1), so selections and outlines may be hard to see. Try a stronger shade.`
+            : 'Accent applied to buttons, selections and particles. Success and error colours are unchanged.';
       } else {
         hexInput.value = '';
         accentNote.textContent = 'Using the palette\u2019s own accent. Pick a swatch or enter a hex colour to override it.';
@@ -255,6 +274,7 @@ export function openAppearancePanel(initialTab: Tab = 'themes'): void {
         })(),
         sectionReset('themes'),
       ]),
+      looksSection(),
     ]);
   }
 
@@ -306,6 +326,121 @@ export function openAppearancePanel(initialTab: Tab = 'themes'): void {
     for (const f of FONT_PRESETS) void ensureFontLoaded(f.id);
   }
 
+  function advancedEffects(): HTMLElement {
+    return el('details', { class: 'ap-advanced' }, [
+      el('summary', {}, ['Advanced effects']),
+      choice('Particle density', 'particleDensity', [
+        { value: 'low', label: 'Low' },
+        { value: 'medium', label: 'Medium' },
+        { value: 'high', label: 'High' },
+      ], 'High is capped on touch and low-power devices.'),
+      choice('Connection lines', 'connections', [
+        { value: 'off', label: 'Off' },
+        { value: 'faint', label: 'Faint' },
+        { value: 'normal', label: 'Normal' },
+      ]),
+      choice('Pointer response', 'pointerResponse', [
+        { value: 'off', label: 'Off' },
+        { value: 'gentle', label: 'Gentle' },
+        { value: 'noticeable', label: 'Noticeable' },
+      ], 'Only applies with Hero particles set to Interactive and a mouse. Nothing ever requires pointer movement.'),
+      choice('Click pulse', 'clickPulse', [
+        { value: 'off', label: 'Off' },
+        { value: 'on', label: 'On' },
+      ], 'One small, soft ripple in the hero. Mouse only.'),
+      choice('Poster tilt', 'posterTilt', [
+        { value: 'off', label: 'Off' },
+        { value: 'gentle', label: 'Gentle' },
+      ], 'Mouse only; always off on touch and with reduced motion.'),
+      choice('Hover glow', 'hoverGlow', [
+        { value: 'off', label: 'Off' },
+        { value: 'subtle', label: 'Subtle' },
+        { value: 'strong', label: 'Strong' },
+      ], 'A soft highlight under the pointer on result cards. Text contrast is kept at every level.'),
+    ]);
+  }
+
+  /** Up to three named looks, plus versioned JSON export / import. Appearance
+   * fields only — never ratings, watchlist, profile or quiz answers. */
+  function looksSection(): HTMLElement {
+    const list = el('div', { class: 'ap-section', style: 'gap:8px' });
+    const nameInput = el('input', { class: 'look-input', type: 'text', maxlength: '24', placeholder: 'Name this look', 'aria-label': 'Name for the new look' }) as HTMLInputElement;
+    const msg = el('p', { class: 'ap-msg', role: 'status' });
+    const saveBtn = el('button', {
+      class: 'btn btn-ghost toolbar-btn',
+      type: 'button',
+      onclick: () => {
+        const r = saveLook(nameInput.value || 'My look');
+        msg.classList.toggle('error', !r.ok);
+        msg.textContent = r.ok ? `Saved \u201c${r.look.name}\u201d.` : r.error;
+        if (r.ok) nameInput.value = '';
+      },
+    }, ['Save current look']);
+
+    const render = () => {
+      const looks = listLooks();
+      list.replaceChildren(
+        ...(looks.length
+          ? looks.map((l) =>
+              el('div', { class: 'look-row' }, [
+                el('button', { class: 'btn-text', type: 'button', onclick: () => applyLook(l.id) }, [l.name]),
+                el('button', { class: 'btn-text-danger', type: 'button', 'aria-label': `Delete look ${l.name}`, onclick: () => deleteLook(l.id) }, ['Delete']),
+              ])
+            )
+          : [el('p', { class: 'ap-msg' }, ['No saved looks yet.'])])
+      );
+      saveBtn.toggleAttribute('disabled', looks.length >= MAX_LOOKS);
+      nameInput.toggleAttribute('disabled', looks.length >= MAX_LOOKS);
+    };
+    onChange(render);
+
+    const exportBox = el('textarea', { class: 'ap-textarea', readonly: true, 'aria-label': 'Exported appearance JSON', rows: '4' }) as HTMLTextAreaElement;
+    const importBox = el('textarea', { class: 'ap-textarea', 'aria-label': 'Paste appearance JSON to import', placeholder: 'Paste an exported appearance here', rows: '4' }) as HTMLTextAreaElement;
+    const ioMsg = el('p', { class: 'ap-msg', role: 'status' });
+
+    return el('div', { class: 'ap-section' }, [
+      el('div', { class: 'setting' }, [
+        el('div', { class: 'setting-label' }, [`My looks (up to ${MAX_LOOKS})`]),
+        list,
+        el('div', { class: 'look-row' }, [nameInput, saveBtn]),
+        msg,
+      ]),
+      el('div', { class: 'setting' }, [
+        el('div', { class: 'setting-label' }, ['Share or back up']),
+        el('p', { class: 'setting-hint' }, ['Exports only appearance settings. Your ratings, watchlist and profile are never included.']),
+        el('div', { class: 'ap-inline-actions' }, [
+          el('button', {
+            class: 'btn btn-ghost toolbar-btn',
+            type: 'button',
+            onclick: () => {
+              exportBox.value = exportAppearance();
+              exportBox.select();
+              void navigator.clipboard?.writeText(exportBox.value).then(
+                () => (ioMsg.textContent = 'Copied to your clipboard.'),
+                () => (ioMsg.textContent = 'Select the text above and copy it.')
+              );
+            },
+          }, ['Export appearance']),
+        ]),
+        exportBox,
+        importBox,
+        el('div', { class: 'ap-inline-actions' }, [
+          el('button', {
+            class: 'btn btn-ghost toolbar-btn',
+            type: 'button',
+            onclick: () => {
+              const r = importAppearance(importBox.value);
+              ioMsg.classList.toggle('error', !r.ok);
+              ioMsg.textContent = r.ok ? 'Imported. Undo is available if you want the previous look back.' : r.error;
+              if (r.ok) importBox.value = '';
+            },
+          }, ['Import appearance']),
+        ]),
+        ioMsg,
+      ]),
+    ]);
+  }
+
   const panels: Record<Tab, () => HTMLElement> = {
     themes: themesPanel,
     typography: typographyPanel,
@@ -334,6 +469,24 @@ export function openAppearancePanel(initialTab: Tab = 'themes'): void {
           { value: 'solid', label: 'Solid' },
           { value: 'glass', label: 'Soft glass' },
         ], 'Soft glass adds a gentle blur to floating surfaces; it is turned off by Reduced transparency.'),
+        choice('Results layout', 'resultLayout', [
+          { value: 'grid', label: 'Poster grid' },
+          { value: 'spotlight', label: 'Spotlight' },
+          { value: 'list', label: 'Compact list' },
+        ], 'Every layout keeps details, match reasons, watchlist, compare and rating one tap away. The top pick always gets its featured card.'),
+        choice('Poster labels', 'posterLabels', [
+          { value: 'detailed', label: 'Detailed' },
+          { value: 'essential', label: 'Essential' },
+        ], 'Essential shows title, year and match on cards; the reason chips move to the detail sheet.'),
+        choice('Shadows', 'shadows', [
+          { value: 'minimal', label: 'Minimal' },
+          { value: 'standard', label: 'Standard' },
+          { value: 'expressive', label: 'Expressive' },
+        ]),
+        choice('Decorative grain', 'grain', [
+          { value: 'off', label: 'Off' },
+          { value: 'subtle', label: 'Subtle' },
+        ], 'A static texture on the landing page only \u2014 never an animated filter.'),
         sectionReset('layout'),
       ]),
     motion: () =>
@@ -350,6 +503,17 @@ export function openAppearancePanel(initialTab: Tab = 'themes'): void {
           { value: 'balanced', label: 'Balanced' },
           { value: 'interactive', label: 'Interactive' },
         ], 'Only the landing hero has an animated background. Interactive reacts to a mouse pointer; on touch or low-power devices the effect is automatically reduced. Off is always respected.'),
+        choice('Artwork ambience', 'artworkAmbience', [
+          { value: 'off', label: 'Off' },
+          { value: 'subtle', label: 'Subtle' },
+          { value: 'balanced', label: 'Balanced' },
+        ], 'A soft halo around your top pick, tinted from its poster. Decoration only \u2014 it never changes text or button colours. Reduced automatically on touch and low-power devices.'),
+        choice('Transition intensity', 'transitionIntensity', [
+          { value: 'minimal', label: 'Minimal' },
+          { value: 'standard', label: 'Standard' },
+          { value: 'cinematic', label: 'Cinematic' },
+        ], 'Cinematic lengthens the hero entry and the top-pick reveal; it never adds waiting before you can act.'),
+        advancedEffects(),
         sectionReset('motion'),
       ]),
     accessibility: () =>
@@ -419,6 +583,23 @@ export function openAppearancePanel(initialTab: Tab = 'themes'): void {
     runSync();
   }
 
+  // Theme Studio: Before/After against the appearance from when this panel
+  // opened (preview only — nothing is saved while comparing), and a one-click
+  // return to that appearance.
+  markAppearanceBaseline();
+  const compareBtn = el('button', {
+    class: 'btn btn-ghost toolbar-btn',
+    type: 'button',
+    'aria-pressed': 'false',
+    onclick: () => peekBaseline(!isPeeking()),
+  }, ['Compare with before']);
+  const restoreBtn = el('button', { class: 'btn-text', type: 'button', onclick: () => restoreBaseline() }, ['Restore previous']);
+  const studioRow = el('div', { class: 'ap-studio', style: 'display:flex;gap:8px;align-items:center;flex-wrap:wrap;padding:6px 20px 0' }, [
+    compareBtn,
+    restoreBtn,
+    el('span', { class: 'ap-msg', 'data-peek-note': '', role: 'status' }),
+  ]);
+
   const status = el('span', { class: 'ap-status', role: 'status', 'aria-live': 'polite' });
   const undoBtn = el('button', { class: 'btn-text', type: 'button', onclick: undo }, []);
   undoBtn.innerHTML = `<span class="icon-inline" style="width:14px;height:14px">${ICON.undo}</span> Undo`;
@@ -447,6 +628,14 @@ export function openAppearancePanel(initialTab: Tab = 'themes'): void {
     const p = getPreferences();
     const changed = JSON.stringify(p) !== JSON.stringify(DEFAULT_PREFERENCES);
     resetAllBtn.toggleAttribute('disabled', !changed);
+    const differs = hasBaselineDifference();
+    const peek = isPeeking();
+    compareBtn.setAttribute('aria-pressed', peek ? 'true' : 'false');
+    compareBtn.textContent = peek ? 'Showing before \u2014 tap to return' : 'Compare with before';
+    compareBtn.toggleAttribute('disabled', !differs && !peek);
+    restoreBtn.toggleAttribute('disabled', !differs);
+    const note = studioRow.querySelector('[data-peek-note]');
+    if (note) note.textContent = peek ? 'Preview only \u2014 your changes are kept.' : '';
     status.textContent = isAppearancePersisted() ? 'Saved on this device' : 'Applied for this session only \u2014 browser storage is blocked';
     status.classList.toggle('warn', !isAppearancePersisted());
   }
@@ -464,6 +653,7 @@ export function openAppearancePanel(initialTab: Tab = 'themes'): void {
       closeBtn,
     ]),
     preview,
+    studioRow,
     tablist,
     body,
     el('div', { class: 'ap-foot' }, [el('div', { class: 'ap-foot-row' }, [undoBtn, redoBtn, status]), resetAllBtn]),
@@ -491,6 +681,7 @@ export function openAppearancePanel(initialTab: Tab = 'themes'): void {
     if (closed) return;
     closed = true;
     openPanel = null;
+    peekBaseline(false); // never leave the page showing a comparison preview
     unsubscribe();
     scrim.classList.add('closing');
     const done = () => {

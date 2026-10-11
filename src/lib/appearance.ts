@@ -45,6 +45,20 @@ export interface AppearancePreferences {
   transparency: 'standard' | 'reduced';
   motion: MotionProfile;
   particles: ParticleLevel;
+  // Layout extras
+  resultLayout: 'grid' | 'list' | 'spotlight';
+  shadows: 'minimal' | 'standard' | 'expressive';
+  grain: 'off' | 'subtle';
+  posterLabels: 'essential' | 'detailed';
+  // Advanced effects (all bounded; Off always wins; see effective*())
+  particleDensity: 'low' | 'medium' | 'high';
+  connections: 'off' | 'faint' | 'normal';
+  pointerResponse: 'off' | 'gentle' | 'noticeable';
+  clickPulse: 'off' | 'on';
+  posterTilt: 'off' | 'gentle';
+  hoverGlow: 'off' | 'subtle' | 'strong';
+  transitionIntensity: 'minimal' | 'standard' | 'cinematic';
+  artworkAmbience: 'off' | 'subtle' | 'balanced';
   /** Validated #rrggbb only. */
   customAccent?: string;
 }
@@ -84,6 +98,18 @@ export const DEFAULT_PREFERENCES: AppearancePreferences = {
   transparency: 'standard',
   motion: 'system',
   particles: 'balanced',
+  resultLayout: 'grid',
+  shadows: 'standard',
+  grain: 'subtle',
+  posterLabels: 'detailed',
+  particleDensity: 'medium',
+  connections: 'normal',
+  pointerResponse: 'gentle',
+  clickPulse: 'off',
+  posterTilt: 'gentle',
+  hoverGlow: 'subtle',
+  transitionIntensity: 'standard',
+  artworkAmbience: 'subtle',
 };
 
 const STORAGE_KEY = 'cinematch-appearance:v1';
@@ -101,6 +127,42 @@ export function isValidHex(v: unknown): v is string {
   return typeof v === 'string' && HEX.test(v);
 }
 
+/** The single allow-list of option values per field. sanitizePreferences()
+ * (forgiving: bad values fall back) and validatePreferencesStrict() (used by
+ * import: bad values reject the whole file) both read from this table, so
+ * the two can never disagree about what is valid. */
+const FIELD_OPTIONS = {
+  mode: ['system', 'dark', 'light'],
+  palette: PALETTES.map((p) => p.id),
+  fontPreset: FONT_PRESETS.map((p) => p.id),
+  textScale: [90, 100, 110, 125],
+  lineSpacing: ['compact', 'comfortable', 'relaxed'],
+  contentWidth: ['compact', 'comfortable', 'wide'],
+  density: ['compact', 'comfortable'],
+  posterSize: ['small', 'medium', 'large'],
+  cardShape: ['sharp', 'standard', 'rounded'],
+  surfaceStyle: ['solid', 'glass'],
+  contrast: ['standard', 'high'],
+  transparency: ['standard', 'reduced'],
+  motion: ['system', 'full', 'subtle', 'off'],
+  particles: ['off', 'subtle', 'balanced', 'interactive'],
+  resultLayout: ['grid', 'list', 'spotlight'],
+  shadows: ['minimal', 'standard', 'expressive'],
+  grain: ['off', 'subtle'],
+  posterLabels: ['essential', 'detailed'],
+  particleDensity: ['low', 'medium', 'high'],
+  connections: ['off', 'faint', 'normal'],
+  pointerResponse: ['off', 'gentle', 'noticeable'],
+  clickPulse: ['off', 'on'],
+  posterTilt: ['off', 'gentle'],
+  hoverGlow: ['off', 'subtle', 'strong'],
+  transitionIntensity: ['minimal', 'standard', 'cinematic'],
+  artworkAmbience: ['off', 'subtle', 'balanced'],
+} as const satisfies Record<string, readonly (string | number)[]>;
+
+type OptionKey = keyof typeof FIELD_OPTIONS;
+const OPTION_KEYS = Object.keys(FIELD_OPTIONS) as OptionKey[];
+
 /** Rebuilds a preferences object field by field from untrusted input.
  * Unknown values fall back to defaults; an unknown future version is
  * rejected outright (returns defaults) rather than half-applied. */
@@ -109,25 +171,30 @@ export function sanitizePreferences(raw: unknown): AppearancePreferences {
   if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return { ...d };
   const r = raw as Record<string, unknown>;
   if (r.version !== 1) return { ...d };
-  const out: AppearancePreferences = {
-    version: 1,
-    mode: oneOf(r.mode, ['system', 'dark', 'light'] as const, d.mode),
-    palette: oneOf(r.palette, PALETTES.map((p) => p.id), d.palette),
-    fontPreset: oneOf(r.fontPreset, FONT_PRESETS.map((p) => p.id), d.fontPreset),
-    textScale: oneOf(r.textScale, [90, 100, 110, 125] as const, d.textScale),
-    lineSpacing: oneOf(r.lineSpacing, ['compact', 'comfortable', 'relaxed'] as const, d.lineSpacing),
-    contentWidth: oneOf(r.contentWidth, ['compact', 'comfortable', 'wide'] as const, d.contentWidth),
-    density: oneOf(r.density, ['compact', 'comfortable'] as const, d.density),
-    posterSize: oneOf(r.posterSize, ['small', 'medium', 'large'] as const, d.posterSize),
-    cardShape: oneOf(r.cardShape, ['sharp', 'standard', 'rounded'] as const, d.cardShape),
-    surfaceStyle: oneOf(r.surfaceStyle, ['solid', 'glass'] as const, d.surfaceStyle),
-    contrast: oneOf(r.contrast, ['standard', 'high'] as const, d.contrast),
-    transparency: oneOf(r.transparency, ['standard', 'reduced'] as const, d.transparency),
-    motion: oneOf(r.motion, ['system', 'full', 'subtle', 'off'] as const, d.motion),
-    particles: oneOf(r.particles, ['off', 'subtle', 'balanced', 'interactive'] as const, d.particles),
-  };
-  if (isValidHex(r.customAccent)) out.customAccent = r.customAccent.toLowerCase();
-  return out;
+  const out: Record<string, unknown> = { version: 1 };
+  for (const key of OPTION_KEYS) {
+    out[key] = oneOf(r[key], FIELD_OPTIONS[key] as readonly (string | number)[], d[key] as string | number);
+  }
+  const prefs = out as unknown as AppearancePreferences;
+  if (isValidHex(r.customAccent)) prefs.customAccent = r.customAccent.toLowerCase();
+  return prefs;
+}
+
+/** Import-grade validation: the file must be exactly the expected shape.
+ * Unknown keys, wrong types and out-of-list values all reject the file —
+ * nothing is "best-effort" applied. */
+export function validatePreferencesStrict(raw: unknown): { ok: true; prefs: AppearancePreferences } | { ok: false; error: string } {
+  if (typeof raw !== 'object' || raw === null || Array.isArray(raw)) return { ok: false, error: 'The file is not an appearance export.' };
+  const r = raw as Record<string, unknown>;
+  if (r.version !== 1) return { ok: false, error: 'Unsupported appearance file version.' };
+  const allowed = new Set<string>(['version', 'customAccent', ...OPTION_KEYS]);
+  for (const k of Object.keys(r)) if (!allowed.has(k)) return { ok: false, error: `Unknown setting “${k.slice(0, 40)}”.` };
+  for (const key of OPTION_KEYS) {
+    if (r[key] === undefined) continue; // older exports may lack newer settings; defaults fill in
+    if (!(FIELD_OPTIONS[key] as readonly (string | number)[]).includes(r[key] as string | number)) return { ok: false, error: `Invalid value for “${key}”.` };
+  }
+  if (r.customAccent !== undefined && !isValidHex(r.customAccent)) return { ok: false, error: 'Invalid accent colour.' };
+  return { ok: true, prefs: sanitizePreferences(r) };
 }
 
 // ── Colour helpers (accent safety) ────────────────────────────────────
@@ -218,6 +285,16 @@ function notify(): void {
   for (const l of listeners) l(prefs);
 }
 
+/** Writes any debounced change immediately. Called when the page is being
+ * hidden/closed so a choice made a moment before a reload or tab close is
+ * never lost to the debounce. */
+export function flushAppearanceSave(): void {
+  if (saveTimer === null) return;
+  window.clearTimeout(saveTimer);
+  saveTimer = null;
+  persisted = safeSet(STORAGE_KEY, JSON.stringify(prefs));
+}
+
 // ── Effective (resolved) values ───────────────────────────────────────
 
 export function effectiveMode(p: AppearancePreferences = prefs): 'dark' | 'light' {
@@ -248,12 +325,38 @@ function isLowPower(): boolean {
 
 /** The hero particle level actually used. A user-selected Off always wins;
  * otherwise the level adapts *downward* on touch and low-power devices. */
+/** Density multiplier; "high" is desktop-only and strictly bounded. */
+export function effectiveDensity(p: AppearancePreferences = prefs): 'low' | 'medium' | 'high' {
+  if ((isCoarsePointer() || isLowPower()) && p.particleDensity === 'high') return 'medium';
+  return p.particleDensity;
+}
+
 export function effectiveParticles(p: AppearancePreferences = prefs): ParticleLevel {
   if (p.particles === 'off' || effectiveMotion(p) === 'off') return 'off';
   let level = LEVELS.indexOf(p.particles);
   if (mqCoarse?.matches) level = Math.min(level, LEVELS.indexOf('balanced')); // no pointer response without a hover pointer
   if (isLowPower()) level = Math.min(level, LEVELS.indexOf('subtle'));
   return LEVELS[level]!;
+}
+
+export function isCoarsePointer(): boolean {
+  return mqCoarse?.matches ?? false;
+}
+
+export type Tilt = 'off' | 'gentle';
+/** Tilt needs a hover-capable pointer and real motion; otherwise Off. */
+export function effectiveTilt(p: AppearancePreferences = prefs): Tilt {
+  if (p.posterTilt === 'off' || effectiveMotion(p) === 'off' || isCoarsePointer()) return 'off';
+  return 'gentle';
+}
+
+/** Artwork ambience adapts down on touch / low-power devices, never up,
+ * and a user-selected Off always wins. The static (non-animated) halo is
+ * still allowed under reduced motion. */
+export function effectiveAmbience(p: AppearancePreferences = prefs): 'off' | 'subtle' | 'balanced' {
+  if (p.artworkAmbience === 'off') return 'off';
+  if ((isCoarsePointer() || isLowPower()) && p.artworkAmbience === 'balanced') return 'subtle';
+  return p.artworkAmbience;
 }
 
 export function getPreferences(): AppearancePreferences {
@@ -283,6 +386,14 @@ export function applyPreferences(p: AppearancePreferences = prefs): void {
   root.setAttribute('data-contrast', p.contrast);
   root.setAttribute('data-transparency', p.transparency);
   root.setAttribute('data-motion', effectiveMotion(p));
+  root.setAttribute('data-results-layout', p.resultLayout);
+  root.setAttribute('data-shadows', p.shadows);
+  root.setAttribute('data-grain', p.grain);
+  root.setAttribute('data-labels', p.posterLabels);
+  root.setAttribute('data-glow', p.hoverGlow);
+  root.setAttribute('data-tilt', effectiveTilt(p));
+  root.setAttribute('data-transition', p.transitionIntensity);
+  root.setAttribute('data-ambience', effectiveAmbience(p));
   root.style.colorScheme = mode;
 
   const preset = getFontPreset(p.fontPreset);
@@ -327,6 +438,7 @@ function syncBrowserChrome(root: HTMLElement): void {
 
 function commit(next: AppearancePreferences, opts: { history?: boolean; immediate?: boolean } = {}): void {
   if (JSON.stringify(next) === JSON.stringify(prefs)) return;
+  peeking = false;
   if (opts.history !== false) {
     undoStack.push(prefs);
     if (undoStack.length > HISTORY_CAP) undoStack.shift();
@@ -352,8 +464,8 @@ export type ResetSection = 'themes' | 'typography' | 'layout' | 'motion' | 'acce
 const SECTION_KEYS: Record<ResetSection, (keyof AppearancePreferences)[]> = {
   themes: ['mode', 'palette', 'customAccent'],
   typography: ['fontPreset', 'textScale', 'lineSpacing'],
-  layout: ['contentWidth', 'density', 'posterSize', 'cardShape', 'surfaceStyle'],
-  motion: ['motion', 'particles'],
+  layout: ['contentWidth', 'density', 'posterSize', 'cardShape', 'surfaceStyle', 'resultLayout', 'shadows', 'grain', 'posterLabels'],
+  motion: ['motion', 'particles', 'particleDensity', 'connections', 'pointerResponse', 'clickPulse', 'posterTilt', 'hoverGlow', 'transitionIntensity', 'artworkAmbience'],
   accessibility: ['contrast', 'transparency'],
 };
 
@@ -381,6 +493,7 @@ export function canRedo(): boolean {
 export function undo(): void {
   const prev = undoStack.pop();
   if (!prev) return;
+  peeking = false;
   redoStack.push(prefs);
   prefs = prev;
   applyPreferences(prefs);
@@ -391,6 +504,7 @@ export function undo(): void {
 export function redo(): void {
   const next = redoStack.pop();
   if (!next) return;
+  peeking = false;
   undoStack.push(prefs);
   prefs = next;
   applyPreferences(prefs);
@@ -432,7 +546,13 @@ export function initAppearance(): void {
 
   // Live OS changes: System mode follows colour scheme; System motion
   // follows reduced-motion. Explicit choices are never overridden.
+  window.addEventListener('pagehide', flushAppearanceSave);
+  document.addEventListener('visibilitychange', () => {
+    if (document.visibilityState === 'hidden') flushAppearanceSave();
+  });
+
   const onSystemChange = () => {
+    peeking = false;
     applyPreferences(prefs);
     notify();
   };
@@ -479,4 +599,128 @@ export function applyVibe(id: Vibe['id']): void {
   if (systemRequestsReducedMotion()) delete patch.motion;
   updatePreferences(patch, { immediate: true });
   markVibeHandled(id);
+}
+
+
+// ── Compare / restore (Theme Studio) ──────────────────────────────────
+
+let baseline: AppearancePreferences | null = null;
+let peeking = false;
+
+/** Remembers the appearance at the moment the settings panel opened, so
+ * "Restore previous appearance" has a meaningful target. */
+export function markAppearanceBaseline(): void {
+  baseline = { ...prefs };
+}
+
+export function hasBaselineDifference(): boolean {
+  return !!baseline && JSON.stringify(baseline) !== JSON.stringify(prefs);
+}
+
+export function restoreBaseline(): void {
+  if (baseline) commit({ ...baseline }, { immediate: true });
+}
+
+/** Before/After: while on, the page shows the appearance from the panel's
+ * baseline *without* changing or saving anything; turning it off puts the
+ * live appearance back exactly. Safe to leave on when closing — callers
+ * must call peek(false) on close. */
+export function peekBaseline(on: boolean): void {
+  if (on === peeking) return;
+  if (on && !baseline) return;
+  peeking = on;
+  applyPreferences(on ? baseline! : prefs);
+  notify();
+}
+
+export function isPeeking(): boolean {
+  return peeking;
+}
+
+// ── Saved looks (up to three) + versioned export / import ─────────────
+// Looks are appearance fields only — never ratings, watchlist or profile.
+
+export interface SavedLook {
+  id: string;
+  name: string;
+  prefs: AppearancePreferences;
+}
+
+const LOOKS_KEY = 'cinematch-looks:v1';
+export const MAX_LOOKS = 3;
+const MAX_IMPORT_BYTES = 8 * 1024;
+
+export function listLooks(): SavedLook[] {
+  const raw = safeGet(LOOKS_KEY);
+  if (!raw) return [];
+  try {
+    const data = JSON.parse(raw) as unknown;
+    if (typeof data !== 'object' || data === null || (data as { version?: unknown }).version !== 1) return [];
+    const looks = (data as { looks?: unknown }).looks;
+    if (!Array.isArray(looks)) return [];
+    const out: SavedLook[] = [];
+    for (const l of looks.slice(0, MAX_LOOKS)) {
+      if (typeof l !== 'object' || l === null) continue;
+      const { id, name, prefs: p } = l as Record<string, unknown>;
+      if (typeof id !== 'string' || typeof name !== 'string') continue;
+      out.push({ id: id.slice(0, 40), name: cleanName(name), prefs: sanitizePreferences(p) });
+    }
+    return out;
+  } catch {
+    return [];
+  }
+}
+
+function cleanName(name: string): string {
+  return Array.from(name, (ch) => (ch.charCodeAt(0) < 32 ? ' ' : ch)).join('').trim().slice(0, 24) || 'My look';
+}
+
+function writeLooks(looks: SavedLook[]): boolean {
+  return safeSet(LOOKS_KEY, JSON.stringify({ version: 1, looks }));
+}
+
+/** Saves the current appearance under a name. Returns an error string if it
+ * can't (limit reached, storage blocked). */
+export function saveLook(name: string): { ok: true; look: SavedLook } | { ok: false; error: string } {
+  const looks = listLooks();
+  if (looks.length >= MAX_LOOKS) return { ok: false, error: `You can keep up to ${MAX_LOOKS} looks. Delete one first.` };
+  const look: SavedLook = { id: `look-${Date.now().toString(36)}-${Math.floor(Math.random() * 1e4).toString(36)}`, name: cleanName(name), prefs: { ...prefs } };
+  if (!writeLooks([...looks, look])) return { ok: false, error: 'Couldn\u2019t save \u2014 browser storage is blocked.' };
+  notify();
+  return { ok: true, look };
+}
+
+export function deleteLook(id: string): void {
+  writeLooks(listLooks().filter((l) => l.id !== id));
+  notify();
+}
+
+export function applyLook(id: string): boolean {
+  const look = listLooks().find((l) => l.id === id);
+  if (!look) return false;
+  commit({ ...look.prefs }, { immediate: true });
+  return true;
+}
+
+/** Appearance-only JSON. Contains no media history, ratings or profile. */
+export function exportAppearance(): string {
+  return JSON.stringify({ app: 'cinematch-appearance', version: 1, preferences: prefs }, null, 2);
+}
+
+/** Validates strictly, then applies as one undoable change. */
+export function importAppearance(text: string): { ok: true } | { ok: false; error: string } {
+  if (new Blob([text]).size > MAX_IMPORT_BYTES) return { ok: false, error: 'That file is too large to be an appearance export.' };
+  let data: unknown;
+  try {
+    data = JSON.parse(text);
+  } catch {
+    return { ok: false, error: 'That isn\u2019t valid JSON.' };
+  }
+  if (typeof data !== 'object' || data === null || (data as { app?: unknown }).app !== 'cinematch-appearance') {
+    return { ok: false, error: 'That isn\u2019t a CineMatch appearance export.' };
+  }
+  const result = validatePreferencesStrict((data as { preferences?: unknown }).preferences);
+  if (!result.ok) return result;
+  commit({ ...result.prefs }, { immediate: true });
+  return { ok: true };
 }
