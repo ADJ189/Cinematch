@@ -14,17 +14,22 @@ import './styles/modal.css';
 import './styles/search.css';
 import './styles/credits.css';
 import './styles/settings.css';
+import './styles/effects.css';
 
 import { renderLanding } from './screens/landing';
 import { store } from './lib/store';
 import { initTheme } from './lib/theme';
 import { effectiveMotion } from './lib/appearance';
+import { initShortcuts } from './lib/command-palette';
+import { initPointerFx } from './lib/fx';
 import { renderHeader } from './lib/header';
 import { el, mount } from './lib/dom';
 import { safeGet, safeSet } from './lib/storage';
 import type { Screen } from './lib/types';
 
 initTheme();
+initShortcuts();
+initPointerFx();
 
 const appRoot = document.getElementById('app');
 if (!appRoot) throw new Error('#app root element missing from index.html');
