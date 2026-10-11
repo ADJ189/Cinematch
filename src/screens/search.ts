@@ -101,7 +101,11 @@ export function renderSearch(root: HTMLElement): () => void {
     if (pending) {
       store.clearPendingSearchTarget();
       if (pending.kind === 'person') void selectPerson(pending.id, detailHost);
-      else void selectTitleById(pending.id, pending.tmdbType, detailHost);
+      else if (pending.kind === 'title') void selectTitleById(pending.id, pending.tmdbType, detailHost);
+      else {
+        input.value = pending.query.slice(0, 120);
+        void runSearch(input.value);
+      }
     }
 
     async function runSearch(query: string) {

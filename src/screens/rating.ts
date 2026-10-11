@@ -240,7 +240,8 @@ export function renderRating(root: HTMLElement): () => void {
       return;
     }
 
-    let unmatched = 0;
+    let unmatched = 0; // TMDB answered, but nothing matched the title
+    let failed = 0; // the lookup itself failed (network, rate limit, timeout)
     let done = 0;
 
     // Without TMDB we can only match against the cards on screen.
@@ -278,7 +279,9 @@ export function renderRating(root: HTMLElement): () => void {
           if (item) slots[index] = { item, stars: row.stars };
           else unmatched++;
         } catch {
-          unmatched++;
+          // A failed request says nothing about the title, so it must not be
+          // counted as "not in TMDB" — it decides whether we may replace.
+          failed++;
         }
         done++;
         if (!cancelled) setImportStatus(`Matching your library\u2026 ${done} of ${rows.length}`);
@@ -290,7 +293,13 @@ export function renderRating(root: HTMLElement): () => void {
 
     // Whole library, persisted and de-duplicated by TMDB id: all of it
     // calibrates the engine, not only titles that happen to be on a card.
-    const keptIds = recordImportedRatings(matched);
+    //
+    // The file only *replaces* the earlier imported library when every row
+    // was looked up and something matched. If any lookup failed, or nothing
+    // matched at all, the file is an incomplete picture: its matches are
+    // merged over the previous import and nothing is erased.
+    const replace = failed === 0 && matched.length > 0;
+    const keptIds = recordImportedRatings(matched, replace);
 
     // Titles that are also visible as seed cards light up their stars.
     const imported: Record<string, RatingValue> = {};
@@ -301,24 +310,27 @@ export function renderRating(root: HTMLElement): () => void {
       if (keptIds.has(k)) continue;
       if (seeds.some((s) => keyOf(s) === k)) imported[k] = Math.max(1, Math.min(5, Math.round(m.stars))) as RatingValue;
     }
-    applyImport(imported);
+    applyImport(imported, replace);
 
-    // The library itself counts toward the "rate a few" requirement. It is
-    // rebuilt (not appended to): the latest file is the whole library.
-    libraryKeys.clear();
+    // The library itself counts toward the "rate a few" requirement. After a
+    // complete import it is rebuilt (the latest file is the whole library);
+    // after an incomplete one it is only added to.
+    if (replace) libraryKeys.clear();
     for (const m of matched) libraryKeys.add(keyOf(m.item));
-    setImportStatus(`Imported ${rows.length} films \u00b7 matched ${matched.length} \u00b7 couldn\u2019t identify ${unmatched}.`);
+    const retryNote = failed > 0 ? ` ${failed} lookup${failed === 1 ? '' : 's'} failed, so your earlier import was kept \u2014 try again.` : '';
+    setImportStatus(`Imported ${rows.length} films \u00b7 matched ${matched.length} \u00b7 couldn\u2019t identify ${unmatched}.${retryNote}`);
     syncFromStore();
   }
 
   /** Session ratings = ratings the person gave in the app + this file's
    * ratings. Anything a previous import put there that this file doesn't
    * contain is dropped, so a smaller re-import really replaces the old one. */
-  function applyImport(imported: Record<string, RatingValue>) {
+  function applyImport(imported: Record<string, RatingValue>, replace = true) {
     const next: Record<string, RatingValue> = {};
     for (const [k, v] of Object.entries(store.getState().ratings)) {
+      // Merge keeps every session rating; replace keeps only in-app ones.
       const ref = parseMediaKey(k);
-      if (ref && hasDeliberateRating(ref)) next[k] = v;
+      if (!replace || (ref && hasDeliberateRating(ref))) next[k] = v;
     }
     Object.assign(next, imported);
     store.replaceRatings(next);

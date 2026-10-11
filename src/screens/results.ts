@@ -12,6 +12,8 @@ import { historyAsCatalogItems, historyRatingFor, isInWatchlist, recordRating, t
 import { keyOf } from '../lib/media-key';
 import { buildStarRow, buildWatchlistButton, paintStars } from '../lib/rating-ui';
 import { showToast } from '../lib/toast';
+import { buildCompareButton, buildCompareTray, clearCompare, openCompareDialog } from '../lib/compare';
+import { extractArtworkPalette } from '../lib/artwork';
 import { ICON } from '../lib/icons';
 import type { CatalogItem, RatingValue, ResultsMode, ScoredItem } from '../lib/types';
 
@@ -73,6 +75,17 @@ export function renderResults(root: HTMLElement): () => void {
   // draw (e.g. a rating's debounced refresh landing after "Different picks").
   let drawToken = 0;
   let closeOpenModal: (() => void) | null = null;
+  let closeCompare: (() => void) | null = null;
+  let posterTransitionActive = false;
+  const compareTray = buildCompareTray((opener) => {
+    closeCompare?.();
+    closeCompare = openCompareDialog(opener, () => {
+      closeCompare = null;
+    });
+  });
+  // Fixed-position, so it lives on <body> (screen content is replaced on every draw).
+  document.body.appendChild(compareTray.node);
+  const compareFull = () => showToast('You can compare up to 3 titles \u2014 remove one first.');
   let allCandidates: CatalogItem[] = [];
   let pageOffset = 0;
   let refreshing = false;
@@ -702,6 +715,7 @@ export function renderResults(root: HTMLElement): () => void {
         ...(chips ? [chips] : []),
         el('ul', { class: 'result-reasons', 'data-reasons': keyOf(item) }, item.reasons.map((r) => el('li', {}, [r]))),
         buildStarRow(item, resultRatings.get(keyOf(item)) ?? historyRatingFor(item), (v) => onRateResult(item, v)),
+        buildCompareButton(item, compareFull),
       ]),
     ]);
   }
@@ -713,7 +727,7 @@ export function renderResults(root: HTMLElement): () => void {
     const chips = buildReasonChips(item);
     const openBtn = el('button', { class: 'btn btn-primary', type: 'button' }, ['See why it fits']);
     openBtn.addEventListener('click', () => openDetailModal(item, openBtn));
-    return el('article', { class: 'featured stagger-in', style: backdrop ? `--feat-bg: url('${backdrop}')` : '' }, [
+    const featuredEl = el('article', { class: 'featured featured-reveal stagger-in', 'data-item': keyOf(item), style: backdrop ? `--feat-bg: url('${backdrop}')` : '' }, [
       el('div', { class: 'featured-poster' }, [buildPosterImage({ src: posterUrl(item.posterPath, 'md'), alt: `${item.title} poster`, fallbackText: item.title.slice(0, 1), eager: true })]),
       el('div', { class: 'featured-info' }, [
         el('p', { class: 'eyebrow' }, ['your top pick']),
@@ -722,9 +736,24 @@ export function renderResults(root: HTMLElement): () => void {
         ...(chips ? [chips] : []),
         el('p', { class: 'featured-overview' }, [item.overview ? truncate(item.overview, 220) : 'No synopsis available.']),
         el('ul', { class: 'result-reasons', 'data-reasons': keyOf(item) }, item.reasons.map((r) => el('li', {}, [r]))),
-        el('div', { class: 'featured-actions' }, [openBtn, buildWatchlistInline(item)]),
+        el('div', { class: 'featured-actions' }, [openBtn, buildWatchlistInline(item), buildCompareButton(item, compareFull)]),
       ]),
     ]);
+
+    // Artwork ambience: a confined halo from the poster's own colours. Skipped
+    // entirely when the setting is Off; on any failure the halo simply uses
+    // the palette's own accents (see effects.css), so nothing can break here.
+    if (document.documentElement.getAttribute('data-ambience') !== 'off') {
+      void extractArtworkPalette(keyOf(item), posterUrl(item.posterPath, 'md')).then((pal) => {
+        if (cancelled || !featuredEl.isConnected) return;
+        if (pal) {
+          featuredEl.style.setProperty('--art-1', pal[0]);
+          featuredEl.style.setProperty('--art-2', pal[1]);
+        }
+        featuredEl.dataset.art = pal ? 'extracted' : 'fallback';
+      });
+    }
+    return featuredEl;
   }
 
   function buildWatchlistInline(item: ScoredItem): HTMLElement {
@@ -807,6 +836,7 @@ export function renderResults(root: HTMLElement): () => void {
                 const nowSaved = toggleWatchlist(item);
                 btn.classList.toggle('active', nowSaved);
                 btn.textContent = nowSaved ? '✓ In watchlist' : '+ Watchlist';
+                showToast(nowSaved ? `Saved \u201c${item.title}\u201d to your watchlist` : `Removed \u201c${item.title}\u201d from your watchlist`);
               },
             },
             [isInWatchlist(item) ? '✓ In watchlist' : '+ Watchlist']
@@ -821,11 +851,41 @@ export function renderResults(root: HTMLElement): () => void {
     ]);
 
     overlay.appendChild(modal);
-    document.body.appendChild(overlay);
-    document.body.style.overflow = 'hidden';
 
-    const release = trapFocus(modal, { initialFocus: closeBtn, onEscape: close });
-    void trigger; // focus restore is handled by trapFocus's release()
+    let release: () => void = () => {};
+    const show = () => {
+      if (modalClosed) return; // closed (or screen left) before a transition callback ran
+      document.body.appendChild(overlay);
+      document.body.style.overflow = 'hidden';
+      release = trapFocus(modal, { initialFocus: closeBtn, onEscape: close });
+    };
+    // Shared-element transition: the clicked poster morphs into the sheet's
+    // hero. Progressive enhancement only — unsupported browsers, Motion: Off,
+    // or a transition already in flight all take the plain path above.
+    const source = trigger?.closest<HTMLElement>('.result-card, .featured')?.querySelector<HTMLElement>('.result-poster, .featured-poster') ?? null;
+    const doc = document as Document & { startViewTransition?: (cb: () => void) => { finished: Promise<unknown> } };
+    if (source && !posterTransitionActive && typeof doc.startViewTransition === 'function' && document.documentElement.getAttribute('data-motion') !== 'off' && !document.hidden) {
+      posterTransitionActive = true;
+      source.style.viewTransitionName = 'poster-hero';
+      try {
+        const t = doc.startViewTransition(() => {
+          source.style.viewTransitionName = '';
+          hero.style.viewTransitionName = 'poster-hero';
+          show();
+        });
+        void t.finished.catch(() => {}).finally(() => {
+          posterTransitionActive = false;
+          hero.style.viewTransitionName = '';
+          source.style.viewTransitionName = '';
+        });
+      } catch {
+        posterTransitionActive = false;
+        source.style.viewTransitionName = '';
+        show();
+      }
+    } else {
+      show();
+    }
 
     closeOpenModal = close;
 
@@ -856,5 +916,9 @@ export function renderResults(root: HTMLElement): () => void {
     // An open detail sheet lives on <body>, outside the screen: close it so
     // it can't outlive the screen and leave scrolling locked.
     closeOpenModal?.();
+    closeCompare?.();
+    compareTray.destroy();
+    compareTray.node.remove();
+    clearCompare(true);
   };
 }
