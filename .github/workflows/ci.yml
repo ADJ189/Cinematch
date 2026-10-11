@@ -58,3 +58,34 @@ jobs:
 
       - name: Run Lighthouse CI
         run: npx lhci autorun
+
+  e2e:
+    name: End-to-end & accessibility tests
+    needs: lint-and-build
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v7
+
+      - uses: actions/setup-node@v7
+        with:
+          node-version: 22
+          cache: npm
+
+      - run: npm ci
+
+      - name: Install Chromium
+        run: npx playwright install --with-deps chromium
+
+      # Builds with a dummy TMDB key and mocks every TMDB response, so the
+      # suite is deterministic and never calls the live API.
+      - name: Run Playwright tests
+        run: npm test
+
+      - uses: actions/upload-artifact@v7
+        if: failure()
+        with:
+          name: playwright-report
+          path: |
+            playwright-report
+            test-results
+          retention-days: 7
