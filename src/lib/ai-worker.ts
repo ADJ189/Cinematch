@@ -1,161 +1,131 @@
 // src/lib/ai-worker.ts
 //
-// Runs the on-device model in a dedicated Worker so a slow decode never
-// freezes the results screen. This file intentionally uses `any` casts
-// around postMessage/onmessage: the project's tsconfig only loads the
-// "DOM" lib (not "webworker"), and adding the webworker lib globally would
-// conflict with DOM types used everywhere else. Casting here keeps
-// `tsc --noEmit` clean without splitting the project into two tsconfigs
-// for one small file.
+// Runs the on-device explanation writer in a dedicated Worker so a slow
+// download or decode never freezes the UI. The decision order below follows
+// CineMatch-Local-AI-Engine-Policy.md:
 //
-// What this fixes vs. earlier versions, and why it still failed sometimes:
-//   1. No dtype/device was specified at all originally, so the loader
-//      pulled whatever a backend's default happened to be — often a full
-//      fp32 build, several hundred MB more than a 0.5B model needs. Fixed
-//      by requesting the smallest quantization each backend supports.
-//   2. A single CDN (esm.sh) and a single model repo were hardcoded. Any
-//      one of: that CDN being blocked by a network/proxy, that CDN's
-//      current deploy having an issue, or that specific model repo being
-//      rate-limited or briefly unavailable on the Hugging Face Hub, took
-//      the whole feature down with no way to recover. Fixed by trying a
-//      short list of CDNs for the library itself, and a short list of
-//      model repos per resource tier — each combination is tried in turn
-//      until one actually finishes loading.
-//   3. No device fallback existed — if WebGPU init failed for any reason
-//      the whole thing errored out instead of trying WASM.
-//   4. The resource tier (which model + quantization to request) was fixed
-//      regardless of device. A phone on a metered connection and a
-//      16-core desktop with a discrete GPU got the identical request. Now
-//      picks a tier from navigator.deviceMemory / hardwareConcurrency /
-//      WebGPU availability / mobile detection, smallest-download-first.
-//   5. WASM execution only ever used a single thread. Multi-threaded WASM
-//      (SharedArrayBuffer-backed) is meaningfully faster on multi-core
-//      devices when WebGPU isn't available — now explicitly sized to
-//      leave one core free for the UI instead of defaulting to 1 or maxing
-//      every core, and only actually requested when the page is
-//      cross-origin isolated (see point 6).
-//   6. `wasmPaths` was manually pointed at `@huggingface/transformers`'s
-//      own CDN dist folder to "pin" the WASM source — but that folder
-//      never contained the .wasm binaries (they live in the separate
-//      onnxruntime-web package). Every WASM-tier load therefore 404'd on
-//      the binary fetch and surfaced as "AI unavailable/error" — on
-//      basically every device without WebGPU. Fixed by not overriding
-//      wasmPaths at all; the library's own default is version-correct by
-//      construction. Also added a real WebGPU adapter check instead of
-//      trusting `'gpu' in navigator`, which is true even when there's no
-//      usable adapter behind it.
+//   1. Lightweight / data saver returns without touching Transformers.js.
+//   2. Detect resources (heuristics, not exact RAM/GPU memory), including a
+//      real navigator.gpu.requestAdapter() — `'gpu' in navigator` alone is
+//      true on devices with no usable adapter.
+//   3. Build an eligible candidate list (ai-policy.ts). Ineligible candidates
+//      are never attempted just to prove they fail.
+//   4. Prepare the runtime: try the CDN locations in order; do NOT override
+//      `wasmPaths` (see note below); request multiple WASM threads only on a
+//      cross-origin-isolated page.
+//   5. Load ONE candidate at a time, with staged progress. Never download
+//      several models up front.
+//   6. A resolved pipeline is not "ready". Run one deterministic smoke
+//      generation and validate the response; on failure dispose the
+//      candidate and move to the next one.
+//   7. Only then post `ready`.
+//   8. Generation is serialised by a worker-side queue — the invariant holds
+//      even if a caller fires many requests at once.
+//   9. Deterministic decoding (no sampling), no chain-of-thought, strict
+//      format checks. Invalid output becomes `null`, and the caller keeps the
+//      rule-based reasons.
+//
+// This file intentionally uses `any` casts around postMessage/onmessage and
+// the CDN module: the project's tsconfig only loads the "DOM" lib (not
+// "webworker"), and the library is loaded from a CDN at runtime rather than
+// being an npm dependency (see llm.ts for why).
+//
+// Note on `wasmPaths`: an earlier version pointed it at
+// `@huggingface/transformers`'s own dist folder. That folder only holds the
+// JS glue — the .wasm binaries ship in the separate `onnxruntime-web`
+// package at whatever exact version transformers.js depends on — so every
+// WASM load 404'd. The library's own default is version-correct by
+// construction; leave it alone.
+
+import {
+  buildCandidates,
+  buildMessages,
+  SMOKE_MESSAGES,
+  validateExplanation,
+  validateSmoke,
+  type Candidate,
+  type ChatMessage,
+  type ExplainInput,
+  type ResourceSnapshot,
+} from './ai-policy';
+import type { AiMode } from './ai-settings';
 
 const JS_CDN_SOURCES = [
   'https://esm.sh/@huggingface/transformers@4.2.0',
   'https://cdn.jsdelivr.net/npm/@huggingface/transformers@4.2.0/+esm',
   'https://unpkg.com/@huggingface/transformers@4.2.0?module',
 ];
-// NOTE: there used to be a WASM_CDN_DIRS list here that pointed
-// env.backends.onnx.wasm.wasmPaths at `@huggingface/transformers/dist/`.
-// That directory only contains the JS glue file (ort-wasm-*.jsep.mjs), not
-// the actual .wasm binaries — those ship in the separate `onnxruntime-web`
-// package, at whatever exact (often dev-pinned) version transformers.js
-// depends on internally. Pointing wasmPaths at the wrong package meant
-// every WASM-tier load 404'd on the binary fetch and fell through to the
-// 'error' status — this was the actual cause of "AI unavailable/error",
-// and it hit every device without WebGPU (i.e. most phones and a lot of
-// laptops), not just an unlucky few. Fix: don't override wasmPaths at all.
-// The library computes its own default from the exact onnxruntime-web
-// version it ships with (`ONNX_ENV.versions.web`), which is always correct
-// by construction.
 
-const ctx = self as unknown as {
-  postMessage: (message: unknown) => void;
-  onmessage: ((ev: { data: InMsg }) => void) | null;
-  navigator: Navigator & { deviceMemory?: number };
+type Pipeline = ((input: ChatMessage[], options?: Record<string, unknown>) => Promise<unknown>) & {
+  dispose?: () => Promise<void> | void;
 };
-
-type ChatMessage = { role: 'system' | 'user'; content: string };
-type Pipeline = (
-  input: ChatMessage[],
-  options?: Record<string, unknown>
-) => Promise<{ generated_text: ChatMessage[] }[]>;
 
 interface LoadMsg {
   type: 'load';
+  mode: AiMode;
+  /** Main-thread hint: primary pointer is coarse (phones/tablets). */
+  coarsePointer?: boolean;
 }
 interface GenerateMsg {
   type: 'generate';
   id: number;
-  item: { title: string; year: number; reasons: string[] };
+  item: ExplainInput;
   quizSummary: string;
 }
 type InMsg = LoadMsg | GenerateMsg;
 
-interface ResourceTier {
-  name: 'high' | 'mid' | 'low';
-  models: string[]; // tried in order until one loads
-  device: 'webgpu' | 'wasm';
-  dtype: string;
-  maxNewTokens: number;
-}
+type Stage = 'detecting' | 'runtime' | 'downloading' | 'initializing' | 'verifying';
+
+const ctx = self as unknown as {
+  postMessage: (message: unknown) => void;
+  onmessage: ((ev: { data: InMsg }) => void) | null;
+  navigator: Navigator & {
+    deviceMemory?: number;
+    userAgentData?: { mobile?: boolean };
+    gpu?: { requestAdapter(): Promise<unknown> };
+  };
+  crossOriginIsolated?: boolean;
+};
 
 let generator: Pipeline | null = null;
-let maxNewTokens = 32;
+let active: Candidate | null = null;
+let loading = false;
+const queue: GenerateMsg[] = [];
+let draining = false;
 
 ctx.onmessage = (e) => {
   const msg = e.data;
-  if (msg.type === 'load') void load();
-  else if (msg.type === 'generate') void generate(msg);
+  if (msg.type === 'load') void load(msg);
+  else if (msg.type === 'generate') {
+    // Worker-side serial queue: requests are decoded strictly one at a time,
+    // in arrival order, no matter how many callers post at once.
+    queue.push(msg);
+    void drain();
+  }
 };
 
-/** Cheap, synchronous device signal — no permissions prompt, no async cost. */
-function detectResourceTier(): ResourceTier[] {
-  const nav = ctx.navigator;
-  const hasWebGpu = 'gpu' in nav;
-  const mem = nav.deviceMemory; // GB, Chromium-only; undefined elsewhere
-  const cores = nav.hardwareConcurrency || 4;
-  const isMobile = /Android|iPhone|iPad|iPod|Mobi/i.test(nav.userAgent || '');
-
-  const high: ResourceTier = {
-    name: 'high',
-    models: ['onnx-community/Qwen2.5-0.5B-Instruct', 'Xenova/Qwen1.5-0.5B-Chat'],
-    device: 'webgpu',
-    dtype: 'q4',
-    maxNewTokens: 40,
-  };
-  const mid: ResourceTier = {
-    name: 'mid',
-    models: ['onnx-community/Qwen2.5-0.5B-Instruct', 'Xenova/Qwen1.5-0.5B-Chat'],
-    device: 'wasm',
-    dtype: 'q8',
-    maxNewTokens: 32,
-  };
-  const low: ResourceTier = {
-    name: 'low',
-    models: ['HuggingFaceTB/SmolLM2-360M-Instruct', 'onnx-community/SmolLM2-360M-Instruct'],
-    device: 'wasm',
-    dtype: 'q4',
-    maxNewTokens: 24,
-  };
-
-  // Known-low-resource signal (small RAM, very few cores, or mobile with no
-  // WebGPU) → start small and cheap instead of attempting a build that's
-  // likely to stall.
-  const lowResource = (mem !== undefined && mem <= 4) || cores <= 2 || (isMobile && !hasWebGpu);
-
-  if (lowResource) return [low, mid];
-  if (hasWebGpu) return [high, mid, low];
-  return [mid, low];
+function stage(s: Stage, candidate?: Candidate): void {
+  ctx.postMessage({ type: 'stage', stage: s, model: candidate?.label, approxMb: candidate?.approxMb });
 }
 
-/** `'gpu' in navigator` only means the API surface exists — plenty of
- * devices expose it with no usable adapter (GPU blocklisted, software
- * rendering, a locked-down enterprise profile, etc.), and in that case
- * `pipeline()` fails slower and noisier than just checking up front. */
-async function hasWebGpuAdapter(): Promise<boolean> {
-  const nav = ctx.navigator as Navigator & { gpu?: { requestAdapter(): Promise<unknown> } };
-  if (!nav.gpu) return false;
-  try {
-    return (await nav.gpu.requestAdapter()) != null;
-  } catch {
-    return false;
+async function detectResources(coarsePointer: boolean): Promise<ResourceSnapshot> {
+  const nav = ctx.navigator;
+  const mem = typeof nav.deviceMemory === 'number' && nav.deviceMemory > 0 ? nav.deviceMemory : undefined;
+  const cores =
+    typeof nav.hardwareConcurrency === 'number' && nav.hardwareConcurrency > 0 ? Math.floor(nav.hardwareConcurrency) : 4;
+  const mobile =
+    nav.userAgentData?.mobile === true || coarsePointer || /Android|iPhone|iPad|iPod|Mobi/i.test(nav.userAgent || '');
+
+  // A real adapter, not just the API surface.
+  let webgpuAdapter = false;
+  if (nav.gpu) {
+    try {
+      webgpuAdapter = (await nav.gpu.requestAdapter()) != null;
+    } catch {
+      webgpuAdapter = false;
+    }
   }
+  return { deviceMemoryGb: mem, cores, mobile, webgpuAdapter, crossOriginIsolated: ctx.crossOriginIsolated === true };
 }
 
 async function importFromFirstWorkingCdn(): Promise<{
@@ -175,91 +145,194 @@ async function importFromFirstWorkingCdn(): Promise<{
       lastErr = err;
     }
   }
-  throw lastErr instanceof Error ? lastErr : new Error('No CDN source for @huggingface/transformers loaded.');
+  throw lastErr instanceof Error ? lastErr : new Error('The AI runtime could not be loaded from any source.');
 }
 
-async function load(): Promise<void> {
-  if (generator) {
-    ctx.postMessage({ type: 'ready' });
+/** Pulls the assistant's text out of a chat-format pipeline result. */
+function extractReply(out: unknown): string | null {
+  const first = Array.isArray(out) ? (out[0] as { generated_text?: unknown } | undefined) : undefined;
+  const text = first?.generated_text;
+  if (!Array.isArray(text)) return null;
+  const last = text[text.length - 1] as { role?: unknown; content?: unknown } | undefined;
+  return last && last.role === 'assistant' && typeof last.content === 'string' ? last.content : null;
+}
+
+async function disposeGenerator(g: Pipeline | null): Promise<void> {
+  try {
+    await g?.dispose?.();
+  } catch {
+    // Best effort — the worker may be terminated right after anyway.
+  }
+}
+
+function describeError(err: unknown): string {
+  const text = err instanceof Error ? err.message : typeof err === 'string' ? err : '';
+  return text.replace(/\s+/g, ' ').trim().slice(0, 160);
+}
+
+async function load(msg: LoadMsg): Promise<void> {
+  if (generator && active) {
+    postReady(active);
     return;
   }
+  if (loading) return;
+  loading = true;
 
   try {
+    if (msg.mode === 'lightweight') {
+      ctx.postMessage({ type: 'error', message: 'Lightweight mode is on, so no AI model is loaded.' });
+      return;
+    }
+
+    stage('detecting');
+    const resources = await detectResources(msg.coarsePointer === true);
+    const candidates = buildCandidates(msg.mode, resources);
+    if (candidates.length === 0) {
+      ctx.postMessage({ type: 'error', message: 'No on-device model is suitable for this device.' });
+      return;
+    }
+
+    stage('runtime');
     const { pipeline, env } = await importFromFirstWorkingCdn();
     env.allowLocalModels = false;
     env.useBrowserCache = true;
     if (env.backends?.onnx?.wasm) {
-      // Multi-threaded WASM needs a SharedArrayBuffer, which the browser
-      // only grants on a cross-origin-isolated page (COOP/COEP response
-      // headers — see worker/index.ts). Requesting >1 thread without that
-      // throws instead of silently degrading on most onnxruntime-web
-      // builds, which used to take the whole feature down on any
-      // deployment that didn't happen to set those headers. Falls back to
-      // a correct, if slower, single-thread run everywhere else.
-      const isolated = (self as unknown as { crossOriginIsolated?: boolean }).crossOriginIsolated === true;
-      const cores = ctx.navigator.hardwareConcurrency || 4;
-      env.backends.onnx.wasm.numThreads = isolated ? Math.max(1, cores - 1) : 1;
+      // Multi-threaded WASM needs a SharedArrayBuffer, which the browser only
+      // grants on a cross-origin-isolated page (COOP/COEP — see
+      // worker/index.ts). Requesting >1 thread without that throws on most
+      // onnxruntime-web builds, so only ask when the page is isolated.
+      env.backends.onnx.wasm.numThreads = resources.crossOriginIsolated ? Math.max(1, resources.cores - 1) : 1;
     }
 
-    const tiers = detectResourceTier();
-    let lastErr: unknown;
+    let lastFailure = '';
+    for (const candidate of candidates) {
+      let built: Pipeline | null = null;
+      try {
+        stage('downloading', candidate);
+        built = (await pipeline('text-generation', candidate.repo, {
+          revision: candidate.revision,
+          device: candidate.backend,
+          dtype: candidate.dtype,
+          progress_callback: makeProgressReporter(candidate),
+        })) as Pipeline;
 
-    for (const tier of tiers) {
-      if (tier.device === 'webgpu' && !(await hasWebGpuAdapter())) continue;
-      for (const modelId of tier.models) {
-        try {
-          generator = (await pipeline('text-generation', modelId, {
-            device: tier.device,
-            dtype: tier.dtype,
-            progress_callback: (p: { status?: string; progress?: number }) => {
-              if (p.status === 'progress' && typeof p.progress === 'number') {
-                ctx.postMessage({ type: 'progress', pct: Math.round(p.progress) });
-              }
-            },
-          })) as unknown as Pipeline;
-          maxNewTokens = tier.maxNewTokens;
-          ctx.postMessage({ type: 'ready', device: tier.device, tier: tier.name, model: modelId });
-          return;
-        } catch (err) {
-          lastErr = err;
-        }
+        // A resolved pipeline is not a ready model: prove it can answer.
+        stage('verifying', candidate);
+        const out = await built(SMOKE_MESSAGES, { max_new_tokens: 12, do_sample: false });
+        if (!validateSmoke(extractReply(out))) throw new Error('The start-up check returned no usable text.');
+
+        generator = built;
+        active = candidate;
+        postReady(candidate);
+        return;
+      } catch (err) {
+        lastFailure = `${candidate.label} (${candidate.backend}): ${describeError(err) || 'failed to start'}`;
+        await disposeGenerator(built);
       }
     }
-    throw lastErr instanceof Error ? lastErr : new Error('No supported backend/model combination loaded.');
-  } catch (err) {
     ctx.postMessage({
       type: 'error',
-      message: err instanceof Error ? err.message : 'Failed to load the on-device model.',
+      message: `No on-device model could be started on this device. Last attempt: ${lastFailure}`,
     });
+  } catch (err) {
+    ctx.postMessage({ type: 'error', message: describeError(err) || 'Failed to load the on-device model.' });
+  } finally {
+    loading = false;
   }
 }
 
-async function generate(msg: GenerateMsg): Promise<void> {
-  if (!generator) {
+function postReady(c: Candidate): void {
+  ctx.postMessage({
+    type: 'ready',
+    model: c.label,
+    backend: c.backend,
+    dtype: c.dtype,
+    approxMb: c.approxMb,
+  });
+}
+
+/** Aggregates per-file download events into one monotonic percentage and
+ * announces the "initializing" stage once every started file has finished. */
+function makeProgressReporter(candidate: Candidate): (p: unknown) => void {
+  const files = new Map<string, { loaded: number; total: number; done: boolean }>();
+  const expectedBytes = candidate.approxMb * 1_000_000;
+  let lastPct = -1;
+  let announcedInit = false;
+
+  return (raw) => {
+    const p = raw as { status?: string; file?: string; name?: string; loaded?: number; total?: number } | null;
+    if (!p || typeof p.status !== 'string') return;
+    const name = p.file ?? p.name ?? '';
+    if (!name) return;
+
+    if (p.status === 'initiate') {
+      if (!files.has(name)) files.set(name, { loaded: 0, total: 0, done: false });
+    } else if (p.status === 'progress' || p.status === 'download') {
+      const f = files.get(name) ?? { loaded: 0, total: 0, done: false };
+      if (typeof p.loaded === 'number') f.loaded = p.loaded;
+      if (typeof p.total === 'number') f.total = p.total;
+      files.set(name, f);
+    } else if (p.status === 'done') {
+      const f = files.get(name) ?? { loaded: 0, total: 0, done: false };
+      f.done = true;
+      if (f.total > 0) f.loaded = f.total;
+      files.set(name, f);
+    }
+
+    let loaded = 0;
+    let total = 0;
+    let allDone = files.size > 0;
+    for (const f of files.values()) {
+      loaded += f.loaded;
+      total += f.total;
+      if (!f.done) allDone = false;
+    }
+    // Weigh against the expected weight-file size so the bar doesn't jump
+    // backwards when the large file starts after the small ones finish.
+    const denominator = Math.max(total, expectedBytes);
+    const pct = Math.min(99, Math.floor((loaded / denominator) * 100));
+    if (pct > lastPct) {
+      lastPct = pct;
+      ctx.postMessage({ type: 'progress', pct, model: candidate.label });
+    }
+    // The small config/tokenizer files finish long before the weights, so
+    // "every started file is done" alone is not enough: also require that
+    // roughly the whole weight file has arrived. If the real file is a bit
+    // smaller than the approximate size, the stage simply stays on
+    // "downloading" until the pipeline resolves and "verifying" starts.
+    if (allDone && !announcedInit && loaded >= expectedBytes * 0.95) {
+      announcedInit = true;
+      stage('initializing', candidate);
+    }
+  };
+}
+
+async function drain(): Promise<void> {
+  if (draining) return;
+  draining = true;
+  try {
+    for (let next = queue.shift(); next; next = queue.shift()) {
+      await generateOne(next);
+    }
+  } finally {
+    draining = false;
+  }
+}
+
+async function generateOne(msg: GenerateMsg): Promise<void> {
+  // Lets the main thread start its per-request timeout now that this request
+  // is actually being decoded (not merely waiting in the queue).
+  ctx.postMessage({ type: 'started', id: msg.id });
+  if (!generator || !active) {
     ctx.postMessage({ type: 'result', id: msg.id, text: null });
     return;
   }
-
   try {
-    const messages: ChatMessage[] = [
-      {
-        role: 'system',
-        content:
-          'You recommend one movie or show in a single warm, specific sentence, under 20 words. No preamble, no quotes.',
-      },
-      {
-        role: 'user',
-        content: `User wants: ${msg.quizSummary}\nTitle: ${msg.item.title} (${msg.item.year})\nSignals: ${msg.item.reasons.join('; ')}`,
-      },
-    ];
-
-    const out = await generator(messages, { max_new_tokens: maxNewTokens, temperature: 0.6, do_sample: true });
-    const reply = out[0]?.generated_text?.at(-1)?.content?.trim();
-    ctx.postMessage({
-      type: 'result',
-      id: msg.id,
-      text: reply && reply.length > 0 && reply.length < 220 ? reply : null,
+    const out = await generator(buildMessages(msg.item, msg.quizSummary), {
+      max_new_tokens: active.maxNewTokens,
+      do_sample: false,
     });
+    ctx.postMessage({ type: 'result', id: msg.id, text: validateExplanation(extractReply(out)) });
   } catch {
     ctx.postMessage({ type: 'result', id: msg.id, text: null });
   }
