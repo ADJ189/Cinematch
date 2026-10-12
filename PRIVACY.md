@@ -52,11 +52,16 @@ rather than pretending otherwise.
 - **JustWatch data via TMDB** — streaming/watch-provider availability
   is fetched through the same TMDB request path, not a separate call to
   JustWatch directly.
-- **The optional on-device AI** (`src/lib/ai-worker.ts`) downloads a
-  model from a CDN (Hugging Face or a mirror) the first time you opt
-  in, then runs entirely in your browser via WebGPU or WASM. No title
-  data, rating, or prompt is ever sent anywhere for this — "on-device"
-  is literal.
+- **The optional on-device AI** (`src/lib/ai-worker.ts`) loads the
+  Transformers.js library from a public CDN (esm.sh, jsDelivr or unpkg)
+  and downloads a model from Hugging Face (pinned revision) the first
+  time you opt in, then runs entirely in your browser via WebGPU or
+  WASM. Those hosts see the normal request metadata (such as your IP
+  address) for those downloads. No title data, rating, quiz answer or
+  prompt is ever sent anywhere for this — "on-device" is literal, and
+  no cloud AI is used as a fallback. In **Lightweight / data saver**
+  mode (Appearance → AI engine) nothing is downloaded. The chosen mode
+  is stored in your browser under `cinematch-local-ai:v1`.
 - **The optional `/api/recommend` Worker route** (`worker/index.ts`) —
   only reachable if the deployment has Cloudflare Workers AI enabled,
   and nothing in the current app actually calls it yet. If it is used,

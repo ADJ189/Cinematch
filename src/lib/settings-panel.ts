@@ -6,6 +6,8 @@
 // while a palette or font is being tried. It never remounts the screen
 // underneath and never touches ratings, watchlist, profile or quiz state.
 
+import { AI_MODE_OPTIONS, getAiMode, isAiModePersisted, setAiMode, subscribeAiMode } from './ai-settings';
+import { MODELS } from './ai-policy';
 import { trapFocus } from './a11y';
 import {
   accentForeground,
@@ -47,7 +49,7 @@ import { ensureFontLoaded, FONT_PRESETS } from './fonts';
 import { ICON } from './icons';
 import { showToast } from './toast';
 
-type Tab = 'themes' | 'typography' | 'layout' | 'motion' | 'accessibility';
+type Tab = 'themes' | 'typography' | 'layout' | 'motion' | 'accessibility' | 'ai';
 
 const TABS: { id: Tab; label: string }[] = [
   { id: 'themes', label: 'Themes' },
@@ -55,6 +57,7 @@ const TABS: { id: Tab; label: string }[] = [
   { id: 'layout', label: 'Layout' },
   { id: 'motion', label: 'Motion' },
   { id: 'accessibility', label: 'Accessibility' },
+  { id: 'ai', label: 'AI engine' },
 ];
 
 const ACCENT_CHOICES = ['#a78bfa', '#38bdf8', '#34d399', '#fbbf24', '#fb7185', '#f472b6', '#e08a5c'];
@@ -74,6 +77,7 @@ export function openAppearancePanel(initialTab: Tab = 'themes'): void {
 
   const syncers: (() => void)[] = [];
   const onChange = (fn: () => void) => syncers.push(fn);
+  const aiModeUnsubscribers: (() => void)[] = [];
 
   // ── generic controls ────────────────────────────────────────────────
 
@@ -471,6 +475,96 @@ export function openAppearancePanel(initialTab: Tab = 'themes'): void {
     ]);
   }
 
+  // AI engine: a priority policy for the optional on-device explanation
+  // writer. Stored separately from appearance (see ai-settings.ts), so it is
+  // never touched by appearance undo/redo, looks, export/import or reset.
+  function aiPanel(): HTMLElement {
+    const buttons = AI_MODE_OPTIONS.map((o) => {
+      const b = el(
+        'button',
+        {
+          class: 'ai-mode-btn',
+          type: 'button',
+          role: 'radio',
+          'data-ai-mode': o.id,
+          onclick: () => {
+            setAiMode(o.id);
+            syncAi();
+          },
+        },
+        [el('span', { class: 'ai-mode-name' }, [o.label]), el('span', { class: 'ai-mode-summary' }, [o.summary])]
+      );
+      return { b, id: o.id };
+    });
+    const group = el('div', { class: 'ai-mode-group', role: 'radiogroup', 'aria-label': 'AI engine priority' }, buttons.map((x) => x.b));
+    group.addEventListener('keydown', (e) => {
+      if (!['ArrowRight', 'ArrowLeft', 'ArrowDown', 'ArrowUp'].includes(e.key)) return;
+      e.preventDefault();
+      const i = buttons.findIndex(({ b }) => b === document.activeElement);
+      const dir = e.key === 'ArrowRight' || e.key === 'ArrowDown' ? 1 : -1;
+      const next = buttons[(i + dir + buttons.length) % buttons.length]!;
+      next.b.focus();
+      next.b.click();
+    });
+
+    const detail = el('p', { class: 'setting-hint', 'aria-live': 'polite' });
+    const saved = el('p', { class: 'setting-hint' });
+
+    function syncAi() {
+      const cur = getAiMode();
+      for (const { b, id } of buttons) {
+        const on = id === cur;
+        b.classList.toggle('active', on);
+        b.setAttribute('aria-checked', on ? 'true' : 'false');
+        b.tabIndex = on ? 0 : -1;
+      }
+      detail.textContent = AI_MODE_OPTIONS.find((o) => o.id === cur)?.detail ?? '';
+      saved.textContent = isAiModePersisted()
+        ? 'Saved on this device, separately from your appearance.'
+        : 'Applied for this session only \u2014 browser storage is blocked.';
+      saved.classList.toggle('warn', !isAiModePersisted());
+    }
+    onChange(syncAi);
+    // The mode can also change from another tab (storage event) while this
+    // panel is open; follow it, and stop following when the panel closes.
+    aiModeUnsubscribers.push(subscribeAiMode(syncAi));
+
+    // Sizes come straight from the model catalogue so this list can't drift
+    // from what the engine actually requests.
+    const sizes = el(
+      'ul',
+      { class: 'ai-size-list' },
+      Object.values(MODELS).map((m) =>
+        el('li', {}, [`${m.label}: about ${m.webgpu.approxMb} MB (WebGPU) / ${m.wasm.approxMb} MB (WASM)`])
+      )
+    );
+
+    return el('div', { class: 'ap-section' }, [
+      el('div', { class: 'setting' }, [
+        el('div', { class: 'setting-label' }, ['AI engine']),
+        el('p', { class: 'setting-hint' }, [
+          'Optional on-device AI only rewords the reasons behind each pick into one sentence \u2014 it never chooses or reorders titles. If it is off, slow or unavailable, you keep the original reasons.',
+        ]),
+        group,
+        detail,
+        saved,
+      ]),
+      el('div', { class: 'setting' }, [
+        el('div', { class: 'setting-label' }, ['Approximate download sizes']),
+        sizes,
+        el('p', { class: 'setting-hint' }, [
+          'Model-file sizes only \u2014 not memory use, and not a speed guarantee. The first run downloads the model; your browser may keep it for next time. Your device decides which models are eligible.',
+        ]),
+      ]),
+      el('div', { class: 'setting' }, [
+        el('div', { class: 'setting-label' }, ['Privacy']),
+        el('p', { class: 'setting-hint' }, [
+          'The model runs in your browser. Your answers, ratings and searches are not sent to any AI service, and no cloud AI is used as a fallback. Changing this setting resets any model that is already loaded.',
+        ]),
+      ]),
+    ]);
+  }
+
   const panels: Record<Tab, () => HTMLElement> = {
     themes: themesPanel,
     typography: typographyPanel,
@@ -571,6 +665,7 @@ export function openAppearancePanel(initialTab: Tab = 'themes'): void {
         ]),
         sectionReset('accessibility'),
       ]),
+    ai: aiPanel,
   };
 
   // ── shell ───────────────────────────────────────────────────────────
@@ -610,6 +705,9 @@ export function openAppearancePanel(initialTab: Tab = 'themes'): void {
       t.b.tabIndex = on ? 0 : -1;
     }
     if (id === 'typography') primeFonts();
+    // The sample card and Compare/Restore row describe appearance only.
+    preview.style.display = id === 'ai' ? 'none' : '';
+    studioRow.style.display = id === 'ai' ? 'none' : 'flex';
     runSync();
   }
 
@@ -713,6 +811,8 @@ export function openAppearancePanel(initialTab: Tab = 'themes'): void {
     openPanel = null;
     peekBaseline(false); // never leave the page showing a comparison preview
     unsubscribe();
+    for (const off of aiModeUnsubscribers) off();
+    aiModeUnsubscribers.length = 0;
     scrim.classList.add('closing');
     const done = () => {
       scrim.remove();
