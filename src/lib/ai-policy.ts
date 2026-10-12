@@ -232,7 +232,13 @@ function hasSecondSentence(text: string): boolean {
     if (m[1] === '.') {
       const word = (text.slice(0, m.index).split(/\s+/).pop() ?? '').toLowerCase().replace(/[^a-z]/g, '');
       // "Mr. Robot", "Dr. Strange", "J. K. Rowling" are not sentence ends.
-      if (word.length === 1 || ABBREVIATIONS.has(word)) continue;
+      if (word.length === 1) continue;
+      if (ABBREVIATIONS.has(word)) {
+        // "No." is an abbreviation only before a number ("No. 5"); a
+        // standalone "No." is a one-word answer, i.e. a sentence end.
+        if (word === 'no' && !/\d/.test(text.charAt(m.index + m[0].length))) return true;
+        continue;
+      }
     }
     return true;
   }

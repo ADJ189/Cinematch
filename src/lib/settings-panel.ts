@@ -6,7 +6,7 @@
 // while a palette or font is being tried. It never remounts the screen
 // underneath and never touches ratings, watchlist, profile or quiz state.
 
-import { AI_MODE_OPTIONS, getAiMode, isAiModePersisted, setAiMode } from './ai-settings';
+import { AI_MODE_OPTIONS, getAiMode, isAiModePersisted, setAiMode, subscribeAiMode } from './ai-settings';
 import { MODELS } from './ai-policy';
 import { trapFocus } from './a11y';
 import {
@@ -77,6 +77,7 @@ export function openAppearancePanel(initialTab: Tab = 'themes'): void {
 
   const syncers: (() => void)[] = [];
   const onChange = (fn: () => void) => syncers.push(fn);
+  const aiModeUnsubscribers: (() => void)[] = [];
 
   // ── generic controls ────────────────────────────────────────────────
 
@@ -524,6 +525,9 @@ export function openAppearancePanel(initialTab: Tab = 'themes'): void {
       saved.classList.toggle('warn', !isAiModePersisted());
     }
     onChange(syncAi);
+    // The mode can also change from another tab (storage event) while this
+    // panel is open; follow it, and stop following when the panel closes.
+    aiModeUnsubscribers.push(subscribeAiMode(syncAi));
 
     // Sizes come straight from the model catalogue so this list can't drift
     // from what the engine actually requests.
@@ -807,6 +811,8 @@ export function openAppearancePanel(initialTab: Tab = 'themes'): void {
     openPanel = null;
     peekBaseline(false); // never leave the page showing a comparison preview
     unsubscribe();
+    for (const off of aiModeUnsubscribers) off();
+    aiModeUnsubscribers.length = 0;
     scrim.classList.add('closing');
     const done = () => {
       scrim.remove();

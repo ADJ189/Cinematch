@@ -258,6 +258,7 @@ function makeProgressReporter(candidate: Candidate): (p: unknown) => void {
   const expectedBytes = candidate.approxMb * 1_000_000;
   let lastPct = -1;
   let announcedInit = false;
+  let lastActivityAt = 0;
 
   return (raw) => {
     const p = raw as { status?: string; file?: string; name?: string; loaded?: number; total?: number } | null;
@@ -277,6 +278,16 @@ function makeProgressReporter(candidate: Candidate): (p: unknown) => void {
       f.done = true;
       if (f.total > 0) f.loaded = f.total;
       files.set(name, f);
+    }
+
+    // Bytes are still arriving even when the displayed percentage doesn't
+    // move (slow link, or parked at the 99% cap while the last bytes land).
+    // Tell the main thread so its idle timer doesn't call a live download
+    // stalled. Throttled; the main thread's limit is 120 s.
+    const now = Date.now();
+    if (p.status === 'progress' && now - lastActivityAt >= 2000) {
+      lastActivityAt = now;
+      ctx.postMessage({ type: 'activity' });
     }
 
     let loaded = 0;

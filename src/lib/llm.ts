@@ -48,6 +48,7 @@ const CACHE_MAX_ENTRIES = 150;
 type WorkerOutMsg =
   | { type: 'stage'; stage: 'detecting' | 'runtime' | 'downloading' | 'initializing' | 'verifying'; model?: string; approxMb?: number }
   | { type: 'progress'; pct: number; model?: string }
+  | { type: 'activity' }
   | { type: 'ready'; model: string; backend: 'webgpu' | 'wasm'; dtype: string; approxMb: number }
   | { type: 'error'; message: string }
   | { type: 'started'; id: number }
@@ -244,6 +245,10 @@ function onWorkerMessage(w: Worker, msg: WorkerOutMsg): void {
       stageText = `Downloading ${msg.model ?? 'model'}… ${Math.max(0, Math.min(99, Math.round(msg.pct)))}%`;
       armIdleTimer();
       notify();
+      return;
+    case 'activity':
+      // Download bytes are still flowing: not stalled. No UI change.
+      if (status === 'loading') armIdleTimer();
       return;
     case 'ready': {
       if (status !== 'loading') return;
