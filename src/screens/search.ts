@@ -13,7 +13,9 @@
 
 import { buildPosterImage, el, mount } from '../lib/dom';
 import { ICON } from '../lib/icons';
-import { enableLocalAi, explainPick, getLlmStatus, getLlmStatusDetail } from '../lib/llm';
+import { subscribeAiMode } from '../lib/ai-settings';
+import { describeLlm, enableLocalAi, generateExplanation, getLlmStatus, subscribeLlm } from '../lib/llm';
+import { openAppearancePanel } from '../lib/settings-panel';
 import { recordRating } from '../lib/profile';
 import { keyOf } from '../lib/media-key';
 import { buildStarRow, buildWatchlistButton, paintStars } from '../lib/rating-ui';
@@ -54,6 +56,22 @@ export function renderSearch(root: HTMLElement): () => void {
   let detailToken = 0;
   let similarItems: ScoredItem[] = [];
   const resultRatings = new Map<string, RatingValue>();
+
+  // On-device AI wording for the similar-titles grid. Elements are rebuilt on
+  // every drawDetail, so the live status subscription tracks the current ones.
+  let aiBtn: HTMLButtonElement | null = null;
+  let aiStatusEl: HTMLElement | null = null;
+  let aiGrid: HTMLElement | null = null;
+  let aiResults: ScoredItem[] = [];
+  let aiSource: CatalogItem | null = null;
+  // Bumped to cancel an in-progress sentence-by-sentence refresh.
+  let aiRun = 0;
+  let aiWasReady = getLlmStatus() === 'ready';
+  const unsubscribeLlm = subscribeLlm(onLlmChange);
+  const unsubscribeAiMode = subscribeAiMode(() => {
+    aiRun++;
+    restoreReasons();
+  });
 
   const screen = el('div', { class: 'screen search-screen' });
   mount(root, screen);
@@ -312,8 +330,9 @@ export function renderSearch(root: HTMLElement): () => void {
       ]
     );
 
-    const aiBtn = el('button', { class: 'btn btn-ghost toolbar-btn' }, [llmButtonLabel()]);
-    aiBtn.addEventListener('click', () => toggleLocalAi(aiBtn, results, source));
+    const aiButton = el('button', { class: 'btn btn-ghost toolbar-btn', type: 'button' });
+    aiButton.addEventListener('click', () => void onAiClick());
+    const aiStatus = el('p', { class: 'ai-status', role: 'status', 'aria-live': 'polite' });
 
     const grid = el(
       'div',
@@ -324,8 +343,9 @@ export function renderSearch(root: HTMLElement): () => void {
     const section = el('div', { class: 'search-similar-section' }, [
       el('div', { class: 'search-similar-header' }, [
         el('h3', {}, [`Similar to ${source.title}`]),
-        aiBtn,
+        aiButton,
       ]),
+      aiStatus,
       results.length > 0
         ? grid
         : failed
@@ -337,47 +357,79 @@ export function renderSearch(root: HTMLElement): () => void {
     ]);
 
     host.replaceChildren(hero, section);
-    if (getLlmStatus() === 'ready') void refreshReasons(results, grid, source);
+
+    aiBtn = aiButton;
+    aiStatusEl = aiStatus;
+    aiGrid = grid;
+    aiResults = results;
+    aiSource = source;
+    syncAiUi();
+    if (getLlmStatus() === 'ready') void refreshReasons();
   }
 
-  function llmButtonLabel(): string {
-    const status = getLlmStatus();
-    if (status === 'ready') return '✨ On-device AI: on';
-    if (status === 'loading') return 'Loading on-device model…';
-    if (status === 'error') return '⚠️ AI unavailable — retry';
-    return '✨ Summarize with on-device AI';
-  }
-
-  async function toggleLocalAi(btn: HTMLElement, results: ScoredItem[], source: CatalogItem) {
-    if (getLlmStatus() === 'ready') return;
-    btn.setAttribute('disabled', '');
-    btn.textContent = 'Loading on-device model…';
-    try {
-      await enableLocalAi((pct) => {
-        btn.textContent = `Loading on-device model… ${pct}%`;
-      });
-      btn.textContent = llmButtonLabel();
-      const grid = screen.querySelector<HTMLElement>('.search-similar-section .results-grid');
-      if (grid) await refreshReasons(results, grid, source);
-    } catch {
-      btn.textContent = llmButtonLabel();
-      btn.title = getLlmStatusDetail();
-    } finally {
-      btn.removeAttribute('disabled');
+  /** Mirrors the engine state onto the current button + status line. */
+  function syncAiUi() {
+    if (!aiBtn) return;
+    const view = describeLlm('✨ Summarize with on-device AI');
+    aiBtn.textContent = view.label;
+    aiBtn.toggleAttribute('disabled', view.busy);
+    aiBtn.setAttribute('aria-busy', view.busy ? 'true' : 'false');
+    aiBtn.title = view.status;
+    if (aiStatusEl) {
+      // Percent updates while downloading would be read out one by one;
+      // announce only once loading has settled.
+      aiStatusEl.setAttribute('aria-live', view.busy ? 'off' : 'polite');
+      aiStatusEl.textContent = view.status;
     }
   }
 
-  async function refreshReasons(results: ScoredItem[], grid: HTMLElement, source: CatalogItem) {
+  function onLlmChange() {
+    if (cancelled) return;
+    syncAiUi();
+    const ready = getLlmStatus() === 'ready';
+    if (ready && !aiWasReady) void refreshReasons();
+    aiWasReady = ready;
+  }
+
+  async function onAiClick() {
+    const status = getLlmStatus();
+    if (status === 'disabled') {
+      // Data saver is on: take the person to the setting instead of a dead button.
+      openAppearancePanel('ai');
+      return;
+    }
+    if (status === 'ready' || status === 'loading') return;
+    try {
+      await enableLocalAi();
+    } catch {
+      // The failure reason is already shown through the status subscription.
+    }
+  }
+
+  /** Puts the original rule-based reasons back on every card. */
+  function restoreReasons() {
+    if (cancelled || !aiGrid) return;
+    const lists = aiGrid.querySelectorAll<HTMLElement>('.result-reasons');
+    aiResults.forEach((item, i) => lists[i]?.replaceChildren(...item.reasons.map((r) => el('li', {}, [r]))));
+  }
+
+  /** Strictly one card at a time; a title with no usable sentence keeps its
+   * original reasons. */
+  async function refreshReasons() {
+    const grid = aiGrid;
+    const source = aiSource;
+    if (!grid || !source) return;
+    const run = ++aiRun;
+    const results = aiResults;
     const summary = `titles similar to "${source.title}" (${source.genres.join(', ') || 'no genre data'})`;
-    const cards = grid.querySelectorAll<HTMLElement>('.result-reasons');
-    await Promise.all(
-      results.slice(0, AI_LIMIT).map(async (item, i) => {
-        const sentence = await explainPick(item, summary);
-        if (cancelled) return;
-        const listEl = cards[i];
-        if (listEl) listEl.replaceChildren(el('li', { class: 'ai-reason' }, [sentence]));
-      })
-    );
+    const lists = grid.querySelectorAll<HTMLElement>('.result-reasons');
+    for (let i = 0; i < Math.min(results.length, AI_LIMIT); i++) {
+      if (cancelled || run !== aiRun || !grid.isConnected || getLlmStatus() !== 'ready') return;
+      const sentence = await generateExplanation(results[i]!, summary);
+      if (cancelled || run !== aiRun) return;
+      if (!sentence) continue;
+      lists[i]?.replaceChildren(el('li', { class: 'ai-reason' }, [sentence]));
+    }
   }
 
   function buildCard(item: ScoredItem, index: number): HTMLElement {
@@ -455,6 +507,9 @@ export function renderSearch(root: HTMLElement): () => void {
 
   return () => {
     cancelled = true;
+    aiRun++;
+    unsubscribeLlm();
+    unsubscribeAiMode();
     unsubscribePending?.();
     unsubscribePending = null;
     if (debounceTimer !== null) window.clearTimeout(debounceTimer);

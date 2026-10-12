@@ -398,6 +398,78 @@
   color: var(--amber);
 }
 
+/* AI engine mode selector — a radio group of full-width option cards. */
+.ai-mode-group {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.ai-mode-btn {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  min-height: 44px;
+  padding: 10px 12px;
+  text-align: left;
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: var(--radius-md);
+  transition: border-color var(--dur-fast), background var(--dur-fast);
+}
+
+.ai-mode-btn:hover {
+  background: var(--surface-hover);
+  border-color: var(--border-strong);
+}
+
+.ai-mode-btn.active {
+  background: var(--state-selected);
+  border-color: var(--state-selected-border);
+}
+
+.ai-mode-name {
+  font-size: 0.8125rem;
+  font-weight: 600;
+  color: var(--text-primary);
+}
+
+.ai-mode-summary {
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--text-secondary);
+}
+
+.ai-size-list {
+  margin: 0;
+  padding-left: 18px;
+  font-size: 0.75rem;
+  line-height: 1.6;
+  color: var(--text-secondary);
+}
+
+.setting-hint.warn {
+  color: var(--amber);
+}
+
+/* Live status line next to the on-device AI button (results + search). */
+.ai-status {
+  margin: 8px 0 0;
+  font-size: 0.75rem;
+  line-height: 1.4;
+  color: var(--text-muted);
+  overflow-wrap: anywhere;
+}
+
+.ai-status:empty {
+  display: none;
+}
+
+.results-header .ai-status {
+  text-align: center;
+}
+
 @media (max-width: 640px) {
   .ap-scrim {
     align-items: flex-end;
