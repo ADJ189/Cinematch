@@ -82,7 +82,7 @@ const ctx = self as unknown as {
   navigator: Navigator & {
     deviceMemory?: number;
     userAgentData?: { mobile?: boolean };
-    gpu?: { requestAdapter(): Promise<unknown> };
+    gpu?: { requestAdapter(): Promise<{ features: ReadonlySet<string> } | null> };
   };
   crossOriginIsolated?: boolean;
 };
@@ -116,11 +116,12 @@ async function detectResources(coarsePointer: boolean): Promise<ResourceSnapshot
   const mobile =
     nav.userAgentData?.mobile === true || coarsePointer || /Android|iPhone|iPad|iPod|Mobi/i.test(nav.userAgent || '');
 
-  // A real adapter, not just the API surface.
+  // The q4f16 models require a real adapter with half-precision shader support.
   let webgpuAdapter = false;
   if (nav.gpu) {
     try {
-      webgpuAdapter = (await nav.gpu.requestAdapter()) != null;
+      const adapter = await nav.gpu.requestAdapter();
+      webgpuAdapter = adapter?.features.has('shader-f16') === true;
     } catch {
       webgpuAdapter = false;
     }

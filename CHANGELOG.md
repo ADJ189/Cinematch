@@ -2,6 +2,12 @@
 
 All notable changes to this project are documented here.
 
+## [Unreleased]
+
+### Fixed
+- On-device AI selects WASM directly when a WebGPU adapter lacks `shader-f16`, which the configured GPU models require.
+- Clarified that titles, quiz answers, and prompts stay on-device for AI processing, while runtime and model download hosts receive request metadata including the user's IP address.
+
 ## [1.10.3] — Local AI review fixes
 
 ### Fixed

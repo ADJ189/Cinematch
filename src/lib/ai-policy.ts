@@ -80,7 +80,7 @@ export interface ResourceSnapshot {
   deviceMemoryGb: number | undefined;
   cores: number;
   mobile: boolean;
-  /** True only when navigator.gpu.requestAdapter() actually returned an adapter. */
+  /** True only when navigator.gpu.requestAdapter() returned an adapter supporting shader-f16. */
   webgpuAdapter: boolean;
   crossOriginIsolated: boolean;
 }
@@ -141,7 +141,7 @@ const ORDER: Record<Exclude<AiMode, 'lightweight'>, readonly ModelFamily[]> = {
 /**
  * The ordered, eligible candidate list for a mode on this device.
  * - Lightweight returns [] — no model is ever attempted.
- * - Each family uses WebGPU when a real adapter exists, otherwise WASM.
+ * - Each family uses WebGPU when an adapter supports shader-f16, otherwise WASM.
  * - When WebGPU was the chosen backend, the smallest model's WASM build is
  *   appended once as a last verified fallback (a GPU can be present yet fail
  *   to initialise).
