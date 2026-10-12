@@ -2,6 +2,24 @@
 
 All notable changes to this project are documented here.
 
+## [1.10.2] — Local AI optimizer
+
+Policy: [`docs/CineMatch-Local-AI-Engine-Policy.md`](docs/CineMatch-Local-AI-Engine-Policy.md). Ranking is unchanged and deterministic; local AI only rewords the supplied reasons. Cloudflare Workers AI is deferred — `/api/recommend` is untouched and not called by the frontend.
+
+### Added
+- **Settings → AI engine** with four modes — Best quality, Balanced (default), Fastest, Lightweight / data saver — stored under `cinematch-local-ai:v1`, independent of appearance (appearance reset, undo, looks and export never touch it). Data saver imports nothing and downloads nothing.
+- Resource-first model choice (`ai-policy.ts`): Qwen2.5-0.5B, SmolLM2-360M and SmolLM2-135M at pinned Hugging Face revisions, exact backend/dtype per candidate (`q4f16` WebGPU, `q8` WASM). Low-resource and unknown-memory devices never automatically attempt Qwen.
+- Staged loading status (checking device → runtime → download % → starting → quick check) and the chosen model, backend, dtype and approximate weight size once ready.
+- Start-up smoke check: a model is only reported ready after a deterministic test generation returns usable text; otherwise it is disposed and the next candidate is tried.
+- Strict output checks (one sentence, ≤ 20 words, no preamble/refusal/list/markdown). These verify format, not facts.
+- Unit and browser tests for settings persistence, hostile stored values, data-saver (no worker, no model/CDN requests), failed load fallback, candidate order and output validation.
+
+### Changed
+- Generation is deterministic (no sampling) and serialised by a worker-side queue; cards update one at a time as each sentence completes, and a card with no usable sentence keeps its original reasons (previously a failed sentence collapsed the reason list into one joined line).
+- Load timeout is now inactivity-based (120 s of silence) with a 20 min ceiling, instead of 60 s total; a generation timeout (30 s from when decoding starts) ends a wedged worker.
+- Cache is bounded (150 entries), keyed by model + `movie:`/`tv:` key + summary, and cleared when the mode changes. Changing the mode resets the worker.
+- Results and search buttons stay in sync with engine state, including across screens; in data saver the button opens the AI engine setting.
+
 ## [1.10.1] — Review fixes
 
 ### Fixed

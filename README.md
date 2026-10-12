@@ -33,7 +33,7 @@ Seven quick questions, a few titles you already know, and a live pull from thous
 - **An era pick that's actually enforced.** Era (classic/mid/recent) is a hard filter on the candidate pool, not just a scoring nudge — picking "pre-2000" won't let a strong genre match sneak a 2020s title past it.
 - **Keep refining after you get results.** Rate any recommendation right on its card and the whole grid re-curates using every signal collected so far — this session's ratings and every rating your local profile remembers (rating updates instantly; re-curation debounces ~1.6s so a quick streak of taps doesn't re-render on every click). Want a different batch entirely? One click pulls a fresh, unseen set from TMDB. If a narrow filter combination genuinely runs low, the app escalates through fallbacks (a later TMDB page, a loosened Precise floor, then a labeled repeat) instead of ever leaving you with a blank screen.
 - **Precise / Grouped results toggle.** Grouped is a wide, forgiving pool (default). Precise holds results to a 68%+ match floor and returns fewer, tighter picks.
-- **Optional on-device AI.** Turns each result's rule-based reasons — quiz-flow or search-similarity — into one natural sentence, running entirely in a Web Worker. Picks a model/quantization tier from your device's memory, core count, and WebGPU support (with a real adapter check, not just API-surface detection), and falls through several CDN and model-repo options until one loads — no server call, no API key, nothing leaves your device. Opt-in, never a dependency.
+- **Optional on-device AI.** Turns each result's rule-based reasons — quiz-flow or search-similarity — into one natural sentence, running entirely in a Web Worker. Picks a model/quantization tier from your device's memory, core count, and WebGPU support (with a real adapter check, not just API-surface detection), and falls through several CDN options and a short, resource-checked list of pinned models until one fully loads and passes a start-up check — no server call, no API key, nothing leaves your device. Choose the priority under Appearance → AI engine (Best quality / Balanced / Fastest / Lightweight data saver). It only rewords the rule-based reasons; ranking stays deterministic. Opt-in, never a dependency.
 - **Dark mode and light mode**, persisted and defaulting to your system preference.
 - **No tracking, no server account.** Nothing is sent anywhere except the TMDB/OMDb API calls needed to fetch and score titles. The local profile above lives entirely in your browser's localStorage.
 
@@ -103,7 +103,9 @@ src/
     letterboxd.ts   parses a Letterboxd ratings.csv export for taste calibration
     rating-pool.ts  builds the calibration list — ~75% genre-weighted to the quiz's mood when TMDB is available
     llm.ts          main-thread wrapper for the on-device AI: timeouts, caching, status
-    ai-worker.ts    the on-device model itself — resource-tiered, multi-CDN/model fallback, WebGPU → WASM
+    ai-worker.ts    the on-device model itself — candidate list, staged load, smoke check, serial queue
+    ai-policy.ts    pure policy: model catalogue, eligibility, prompt and output checks
+    ai-settings.ts  the AI engine mode (own storage key, independent of appearance)
     profile.ts      the local profile — localStorage-backed identity, avatar, rating history, and
                      watchlist; no backend, no password, nothing synced off this device
     icons.ts        the inline-SVG icon set (replaces emoji chrome), themes via currentColor
@@ -143,6 +145,10 @@ Cast & crew (`getCredits()`) ties the two together: every title shows its top-bi
 2. `engine.ts` scores every candidate and returns the top batch, excluding anything already shown.
 3. Rating a result card feeds that title's own genre/vibe tags straight back into the engine — no lookup table needed, since every live TMDB result already carries that data — and the grid re-scores after a short debounce.
 4. If that re-score comes back empty — which used to happen after just a few ratings on a narrow filter combination — `ensureBatch()` in `results.ts` escalates: retry ignoring the "already shown" set, pull a later TMDB page window, drop Precise mode's match floor, and only as a last resort show the pool's best titles again. Whenever it had to compromise to avoid a dead end, it says so in a small note instead of silently repeating titles.
+
+### On-device AI engine (1.10.2)
+
+The full policy is in [`docs/CineMatch-Local-AI-Engine-Policy.md`](docs/CineMatch-Local-AI-Engine-Policy.md). In short: ranking is deterministic and never changes; local AI only rewords the supplied reasons; a model is reported ready only after it fully initialises and passes a smoke generation; generation is serial and deterministic; and any failure keeps the original reasons. Cloudflare Workers AI is deferred and not called by the frontend. Model sizes are approximate weight-file sizes, not memory use or measured performance.
 
 ### On-device AI, and why it used to fail
 
