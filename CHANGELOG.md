@@ -2,6 +2,13 @@
 
 All notable changes to this project are documented here.
 
+## [1.10.3] — Local AI review fixes
+
+### Fixed
+- A slow download is no longer abandoned as "stalled" while bytes are still arriving: the worker sends a throttled activity heartbeat independent of the displayed percentage (including at the 99% cap).
+- An open AI engine panel now follows a mode change made in another tab, and releases that subscription when the panel closes.
+- Output check: a standalone "No." is a sentence end, so `No. It is tense and dark.` is rejected; "No." before a number (`No. 1`) is still treated as an abbreviation.
+
 ## [1.10.2] — Local AI optimizer
 
 Policy: [`docs/CineMatch-Local-AI-Engine-Policy.md`](docs/CineMatch-Local-AI-Engine-Policy.md). Ranking is unchanged and deterministic; local AI only rewords the supplied reasons. Cloudflare Workers AI is deferred — `/api/recommend` is untouched and not called by the frontend.
