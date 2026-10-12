@@ -46,6 +46,8 @@ test.describe('local AI policy (pure)', () => {
 
   test('explanations: accepts one short sentence, rejects the rest', () => {
     expect(validateExplanation('A tense, well-rated thriller that matches your dark mood.')).not.toBeNull();
+    // "No." before a number is an abbreviation, not a sentence end.
+    expect(validateExplanation('Ranked No. 1 for tense dark thrillers that fit your mood.')).not.toBeNull();
     expect(validateExplanation('"Mr. Robot is a tense, dark drama that fits your mood."')).toBe('Mr. Robot is a tense, dark drama that fits your mood.');
     for (const bad of [
       '',
@@ -55,6 +57,7 @@ test.describe('local AI policy (pure)', () => {
       "Sure! Here is a sentence about it.",
       "I'm sorry, I can't help with that request today.",
       'It is dark. It is also very tense and rewarding.',
+      'No. It is tense and dark.',
       'A dark thriller.\nAnd more here.',
       '- a dark tense thriller for you',
       '**Dark** thriller that fits you well',
