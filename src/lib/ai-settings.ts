@@ -11,7 +11,7 @@
 //
 // This module only decides *which policy applies*. What each policy means for
 // model order, resource guardrails and loading is in ai-policy.ts (pure) and
-// ai-worker.ts (execution); see CineMatch-Local-AI-Engine-Policy.md.
+// ai-worker.ts (execution); see Moodsift-Local-AI-Engine-Policy.md.
 
 import { safeGet, safeSet } from './storage';
 

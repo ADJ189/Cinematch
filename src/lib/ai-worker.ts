@@ -2,7 +2,7 @@
 //
 // Runs the on-device explanation writer in a dedicated Worker so a slow
 // download or decode never freezes the UI. The decision order below follows
-// CineMatch-Local-AI-Engine-Policy.md:
+// Moodsift-Local-AI-Engine-Policy.md:
 //
 //   1. Lightweight / data saver returns without touching Transformers.js.
 //   2. Detect resources (heuristics, not exact RAM/GPU memory), including a

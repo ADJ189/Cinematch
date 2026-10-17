@@ -16,7 +16,7 @@
 //   - resetting everything when the user changes the AI engine mode.
 //
 // Cloud AI is intentionally NOT used here. The existing /api/recommend
-// endpoint is not called by the frontend; see CineMatch-Local-AI-Engine-Policy.md.
+// endpoint is not called by the frontend; see Moodsift-Local-AI-Engine-Policy.md.
 //
 // Deliberately NOT an npm dependency: @huggingface/transformers pulls in
 // onnxruntime-node and sharp as hard dependencies for its Node backend,

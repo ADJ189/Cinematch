@@ -1,10 +1,10 @@
 {
-  // Keep this name as-is if you're redeploying over the existing
-  // deployment (the one that already has VITE_TMDB_TOKEN etc. set as
-  // Cloudflare project variables) — `wrangler deploy` matches on name, so
-  // changing it creates a brand-new, unconfigured Worker instead of
-  // updating the one you already have.
-  "name": "cinematch",
+  // The Worker name is also the workers.dev subdomain
+  // (https://moodsift.adj189.workers.dev). `wrangler deploy` matches on
+  // name, so a Worker with this name needs VITE_TMDB_TOKEN (and optionally
+  // VITE_OMDB_KEY) set as build variables of its own — renaming creates a
+  // new, unconfigured Worker rather than updating the old one.
+  "name": "moodsift",
   "main": "worker/index.ts",
   "compatibility_date": "2026-01-01",
   "assets": {
