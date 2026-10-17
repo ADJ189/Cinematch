@@ -90,9 +90,9 @@ export function renderHeader(): HTMLElement {
 
   const header = el('header', { class: 'app-header' }, [
     el('div', { class: 'app-header-inner' }, [
-      el('a', { class: 'app-brand', href: '/', 'aria-label': 'CineMatch home', onclick: onBrand }, [
-        el('img', { src: '/logo.svg', alt: '', width: '22', height: '22' }),
-        el('span', {}, ['CineMatch']),
+      el('a', { class: 'app-brand', href: '/', 'aria-label': 'Moodsift home', onclick: onBrand }, [
+        el('img', { src: '/logo-96.png', alt: '', width: '24', height: '24' }),
+        el('span', {}, ['Moodsift']),
       ]),
       el('div', { class: 'app-header-actions' }, [
         searchBtn,

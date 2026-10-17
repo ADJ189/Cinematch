@@ -4,7 +4,7 @@
 // engine: the model catalogue, which candidates a mode may attempt on a given
 // device, the prompt, and the strict output-format checks. Keeping it pure
 // means the worker, the settings UI and the unit tests all use one definition
-// of the policy in CineMatch-Local-AI-Engine-Policy.md.
+// of the policy in Moodsift-Local-AI-Engine-Policy.md.
 //
 // IMPORTANT: model sizes below are approximate ONNX *weight-file* sizes only
 // (repository artifact sizes) — not peak memory, not supporting files, and not

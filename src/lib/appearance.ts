@@ -1,6 +1,6 @@
 // src/lib/appearance.ts
 //
-// The single source of truth for how CineMatch looks. Mode (system / dark /
+// The single source of truth for how Moodsift looks. Mode (system / dark /
 // light) and palette are separate preferences; fonts, text size, density,
 // motion and effects are curated presets — there is no raw CSS, no remote
 // font URL and no arbitrary script surface. Preferences are validated on
@@ -726,7 +726,7 @@ export function importAppearance(text: string): { ok: true } | { ok: false; erro
     return { ok: false, error: 'That isn\u2019t valid JSON.' };
   }
   if (typeof data !== 'object' || data === null || (data as { app?: unknown }).app !== 'cinematch-appearance') {
-    return { ok: false, error: 'That isn\u2019t a CineMatch appearance export.' };
+    return { ok: false, error: 'That isn\u2019t a Moodsift appearance export.' };
   }
   const result = validatePreferencesStrict((data as { preferences?: unknown }).preferences);
   if (!result.ok) return result;
