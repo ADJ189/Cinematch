@@ -1,8 +1,8 @@
 # Credits
 
-CineMatch is built on top of a handful of external data sources,
+Moodsift is built on top of a handful of external data sources,
 open-source libraries, and design references. None of these projects
-endorse CineMatch — this file exists to attribute the work this project
+endorse Moodsift — this file exists to attribute the work this project
 depends on.
 
 ## Data
@@ -16,7 +16,7 @@ depends on.
   signal (Rotten Tomatoes, Metacritic, IMDb scores).
 - **[Letterboxd](https://letterboxd.com/)** — `letterboxd.ts` parses a
   user-exported `ratings.csv` (Settings → Data → Export) as a taste
-  calibration shortcut. CineMatch has no association with Letterboxd
+  calibration shortcut. Moodsift has no association with Letterboxd
   and does not access their API or servers; the importer only reads a
   file the user already exported themselves.
 
@@ -45,12 +45,12 @@ depends on.
 - The "click a cast member to see their other work" pattern on title
   pages is inspired by the UX of self-hosted media servers like
   **[Jellyfin](https://jellyfin.org/)** and **[Plex](https://www.plex.tv/)**.
-  CineMatch is a client-only app with no local media library and shares
+  Moodsift is a client-only app with no local media library and shares
   no code with either project — the credit is for the interaction
   pattern, not an implementation.
 
 ## License
 
-CineMatch itself is licensed under the Apache License 2.0 — see
+Moodsift itself is licensed under the Apache License 2.0 — see
 [LICENSE](./LICENSE). Third-party libraries retain their own licenses;
 see `package.json` / `package-lock.json` for the full dependency list.
