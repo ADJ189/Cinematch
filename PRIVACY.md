@@ -1,6 +1,6 @@
 # Privacy
 
-CineMatch has no server-side account system and no analytics. This
+Moodsift has no server-side account system and no analytics. This
 document is a plain-language explanation of what data the app touches
 and where it goes, since "trust me" isn't a privacy policy. It's not a
 legal document — if you're deploying your own fork commercially and need
@@ -10,7 +10,7 @@ not a contractual promise.
 ## The short version
 
 Nothing about you is stored on any server this project runs. Everything
-CineMatch "remembers" about you lives in your browser's `localStorage`,
+Moodsift "remembers" about you lives in your browser's `localStorage`,
 on your device only, and the only things sent over the network are the
 direct API calls needed to fetch and score titles.
 
@@ -74,7 +74,7 @@ rather than pretending otherwise.
   any page necessarily exposes your IP address to Cloudflare's edge
   network, the same as any website.
 
-## What CineMatch never does
+## What Moodsift never does
 
 - No analytics or usage tracking of any kind.
 - No cookies set by this app (Cloudflare's own infrastructure cookies,

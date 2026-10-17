@@ -1,9 +1,9 @@
 {
-  "name": "cinematch",
-  "version": "1.10.3",
+  "name": "moodsift",
+  "version": "1.11.0",
   "private": true,
   "type": "module",
-  "description": "CineMatch \u2014 a fast, framework-free movie & TV recommendation engine.",
+  "description": "Moodsift — a fast, framework-free movie & TV recommendation engine.",
   "scripts": {
     "dev": "vite",
     "build": "tsc --noEmit && vite build",
@@ -20,15 +20,13 @@
     "test:install": "playwright install --with-deps chromium"
   },
   "devDependencies": {
-    "@axe-core/playwright": "4.10.2",
-    "@playwright/test": "1.56.0",
-    "@types/node": "22.15.0",
-    "oxlint": "^1.87.0",
+    "@axe-core/playwright": "4.14.0",
+    "@playwright/test": "1.64.1",
+    "@types/node": "22.20.5",
+    "oxlint": "^1.88.0",
     "typescript": "^7.0.2",
-    "vite": "^8.3.3",
-    "wrangler": "^4.144.0"
-    "vite": "^8.3.1",
-    "wrangler": "^4.148.0"
+    "vite": "^8.3.4",
+    "wrangler": "^4.151.1"
   },
   "overrides": {
     "undici": "7.30.0",

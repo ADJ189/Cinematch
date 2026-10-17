@@ -36,7 +36,7 @@ const INTER = () => import('@fontsource-variable/inter/wght.css');
 export const FONT_PRESETS: FontPreset[] = [
   {
     id: 'default',
-    label: 'CineMatch Default',
+    label: 'Moodsift Default',
     blurb: 'Sora + Inter — geometric and modern.',
     display: `'Sora Variable', ${SYS}`,
     body: `'Inter Variable', ${SYS}`,
