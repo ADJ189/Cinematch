@@ -2,11 +2,36 @@
 
 All notable changes to this project are documented here.
 
-## [Unreleased]
+## [1.11.0] — Moodsift: redesign + rebranding
+
+CineMatch is now **Moodsift** (the old name was too common to be findable). Live at <https://moodsift.adj189.workers.dev/>.
+
+### Changed — rebranding
+- **New name everywhere:** app header, page title and meta description, Open Graph/Twitter tags, appearance-export error text, the "Moodsift Default" font pairing, Worker prompt, `package.json` (`moodsift`, version `1.11.0`, lockfile), `wrangler.jsonc` (`name: "moodsift"`, which is also the `workers.dev` subdomain), and every doc (README, CONTRIBUTING, PRIVACY, CREDITS, the local-AI policy).
+- **Docs file renamed:** `docs/CineMatch-Local-AI-Engine-Policy.md` → `docs/Moodsift-Local-AI-Engine-Policy.md` (links updated; a stray upload-link line at the top of the file removed).
+- **Storage keys deliberately unchanged** (`cinematch-appearance:v1`, `cinematch-local-ai:v1`, `cinematch.profile.v1`, `cinematch-region`, `cinematch-looks:v1`, `cinematch-vibe:v1`, and the `cinematch-appearance` export tag). They are internal identifiers; renaming them would silently wipe existing ratings, watchlists, looks and settings. Existing profiles and appearance exports carry over untouched.
+
+### Added — new visual identity
+- **New logo:** an iridescent liquid-chrome four-point star, replacing the film-sprocket badge. Shipped as a background-removed transparent PNG (`public/logo-transparent.png`, plus a 96 px header mark `logo-96.png`) and a normal dark-background PNG (`public/logo.png`). Full-resolution masters of both live in `assets/brand/` (not served).
+- **Favicon and app icons:** `favicon-32.png`, `apple-touch-icon.png` (opaque tile, since iOS fills transparency with black); the old `logo.svg` / `favicon.svg` are removed.
+- **Social preview:** `og-image.png` (1200×630) with Open Graph and Twitter card tags pointing at the new site.
+- **Boot loader** now pulses the logo instead of showing a generic spinner (still pre-paint, still themed from the stored palette).
+
+### Changed — docs
+- **README restructured into categories:** Overview, Features (Discover · Explore a title · Personalize · Refine results · Appearance · On-device AI · Privacy), Tech stack, Getting started, Configuration, Architecture, Deployment, Testing, Roadmap and Project info. Content is preserved; the "why it used to fail" history now sits under Architecture.
 
 ### Fixed
+- **A rated title went blank.** Rating a result re-curated the grid after the debounce, and rated titles are (correctly) excluded from the scoring pool — so the card you had just rated disappeared and left an empty slot, and with a narrow filter the whole grid could end up empty. The most recent rated titles (up to 6) now stay on screen with their stars filled, merged in match order with the fresh picks. Covers both the card star row and the detail sheet. Regression test added in `tests/regressions.spec.ts`.
 - On-device AI selects WASM directly when a WebGPU adapter lacks `shader-f16`, which the configured GPU models require.
 - Clarified that titles, quiz answers, and prompts stay on-device for AI processing, while runtime and model download hosts receive request metadata including the user's IP address.
+
+### Dependencies
+- `vite` 8.3.1 → 8.3.4, `@playwright/test` 1.56.0 → 1.64.1, `@axe-core/playwright` 4.10.2 → 4.14.0, `wrangler` 4.148 → 4.151.1, `oxlint` 1.87 → 1.88.0, `@types/node` 22.15 → 22.20.5 (kept on the 22 line to match the Node 22 used in CI and Cloudflare builds). `package.json` and `package-lock.json` are in sync; `npm audit` reports 0 vulnerabilities.
+- Unchanged on purpose: `typescript` (7.0.2), Fontsource packages (5.3.0) and the `sharp` override are already at their latest releases; the `undici` override stays pinned at 7.30.0.
+
+### Notes
+- `wrangler.jsonc` now names the Worker `moodsift`. A Worker with that name needs its own `VITE_TMDB_TOKEN` (and optionally `VITE_OMDB_KEY`) build variables; the old `cinematch` Worker can be deleted once the new one is verified.
+- The GitHub link in the header still points at `ADJ189/Cinematch`; GitHub redirects renamed repositories, so renaming the repo later is safe.
 
 ## [1.10.3] — Local AI review fixes
 
@@ -17,7 +42,7 @@ All notable changes to this project are documented here.
 
 ## [1.10.2] — Local AI optimizer
 
-Policy: [`docs/CineMatch-Local-AI-Engine-Policy.md`](docs/CineMatch-Local-AI-Engine-Policy.md). Ranking is unchanged and deterministic; local AI only rewords the supplied reasons. Cloudflare Workers AI is deferred — `/api/recommend` is untouched and not called by the frontend.
+Policy: [`docs/Moodsift-Local-AI-Engine-Policy.md`](docs/CineMatch-Local-AI-Engine-Policy.md). Ranking is unchanged and deterministic; local AI only rewords the supplied reasons. Cloudflare Workers AI is deferred — `/api/recommend` is untouched and not called by the frontend.
 
 ### Added
 - **Settings → AI engine** with four modes — Best quality, Balanced (default), Fastest, Lightweight / data saver — stored under `cinematch-local-ai:v1`, independent of appearance (appearance reset, undo, looks and export never touch it). Data saver imports nothing and downloads nothing.

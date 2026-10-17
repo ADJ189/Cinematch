@@ -30,6 +30,9 @@ const MAX_PAGE_OFFSET = 18; // ~6 refreshes of live TMDB pages before we start r
 // change doesn't feel jarringly instant. Long enough to read as deliberate,
 // short enough not to feel like a delay.
 const RATE_DEBOUNCE_MS = 1600;
+// How many titles you've just rated stay visible (with their stars filled)
+// while the rest of the grid re-curates around them.
+const MAX_PINNED_RATED = 6;
 
 function summarizeQuiz(state: ReturnType<typeof store.getState>): string {
   const { mood, vibe, era, company, contentType } = state.quizAnswers;
@@ -386,10 +389,30 @@ export function renderResults(root: HTMLElement): () => void {
       void (async () => {
         const { batch, note } = await ensureBatch(targetCount());
         if (cancelled || token !== drawToken) return;
-        store.setResults(batch);
-        draw(batch, note);
+        // Rated titles are excluded from the scoring pool (they already got
+        // a verdict), so a plain redraw made the title you had just rated
+        // vanish and left a blank slot. Keep the most recent ones on screen,
+        // with their stars filled, and let new picks fill in around them.
+        const merged = withPinnedRated(batch);
+        store.setResults(merged);
+        draw(merged, note);
       })();
     }, RATE_DEBOUNCE_MS);
+  }
+
+  /** The titles rated this session that are on screen right now, newest
+   * first, merged with a fresh batch and kept in match order. */
+  function withPinnedRated(batch: ScoredItem[]): ScoredItem[] {
+    const onScreen = new Map<string, ScoredItem>(currentResults.map((r) => [keyOf(r), r]));
+    const pinned: ScoredItem[] = [];
+    for (const key of Array.from(resultRatings.keys()).reverse()) {
+      const item = onScreen.get(key);
+      if (item) pinned.push(item);
+      if (pinned.length >= MAX_PINNED_RATED) break;
+    }
+    if (pinned.length === 0) return batch;
+    const pinnedKeys = new Set(pinned.map(keyOf));
+    return [...batch.filter((r) => !pinnedKeys.has(keyOf(r))), ...pinned].sort((a, b) => b.matchPct - a.matchPct);
   }
 
   function setCurating(active: boolean) {

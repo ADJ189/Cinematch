@@ -1,4 +1,4 @@
-# Contributing to CineMatch
+# Contributing to Moodsift
 
 Issues and PRs are welcome. This doc covers the workflow the short
 "Contributing" section in the README doesn't have room for.

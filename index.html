@@ -3,11 +3,19 @@
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover" />
-    <meta name="description" content="CineMatch — a fast, precision movie and TV recommendation engine. No server account, nothing tracked off your device, just better picks that improve the more you rate." />
+    <meta name="description" content="Moodsift — a fast, precision movie and TV recommendation engine. No server account, nothing tracked off your device, just better picks that improve the more you rate." />
     <meta name="theme-color" content="#07050f" />
     <meta name="color-scheme" content="dark light" />
-    <title>CineMatch — find what to watch next</title>
-    <link rel="icon" type="image/svg+xml" href="/favicon.svg" />
+    <title>Moodsift — find what to watch next</title>
+    <link rel="icon" type="image/png" sizes="32x32" href="/favicon-32.png" />
+    <link rel="apple-touch-icon" sizes="180x180" href="/apple-touch-icon.png" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Moodsift" />
+    <meta property="og:title" content="Moodsift — find what to watch next" />
+    <meta property="og:description" content="A fast, precision movie and TV recommendation engine. No server account, nothing tracked off your device." />
+    <meta property="og:url" content="https://moodsift.adj189.workers.dev/" />
+    <meta property="og:image" content="https://moodsift.adj189.workers.dev/og-image.png" />
+    <meta name="twitter:card" content="summary_large_image" />
     <link rel="preconnect" href="https://api.themoviedb.org" />
     <link rel="preconnect" href="https://image.tmdb.org" crossorigin />
     <script>
@@ -62,22 +70,18 @@
         opacity: 0;
         pointer-events: none;
       }
-      #boot-loader svg {
-        animation: boot-spin 0.85s linear infinite;
+      #boot-loader img {
+        animation: boot-pulse 1.6s ease-in-out infinite;
       }
-      @keyframes boot-spin {
-        to {
-          transform: rotate(360deg);
-        }
+      @keyframes boot-pulse {
+        0%, 100% { opacity: 0.55; transform: scale(0.94); }
+        50% { opacity: 1; transform: scale(1); }
       }
     </style>
   </head>
   <body>
     <div id="boot-loader" aria-hidden="true">
-      <svg width="34" height="34" viewBox="0 0 34 34" fill="none">
-        <circle cx="17" cy="17" r="14" stroke="#2a2350" stroke-width="3" />
-        <path d="M31 17a14 14 0 0 0-14-14" stroke="#a78bfa" stroke-width="3" stroke-linecap="round" />
-      </svg>
+      <img src="/logo-96.png" width="56" height="56" alt="" />
     </div>
     <div id="app"></div>
     <script type="module" src="/src/main.ts"></script>
