@@ -134,3 +134,24 @@ test.describe('Compare with before + hero canvas', () => {
     await expect(canvas).toBeVisible();
   });
 });
+
+test.describe('rating a result', () => {
+  test('the title you just rated stays on screen (filled stars) after the grid re-curates', async ({ page, mock }) => {
+    void mock;
+    await page.goto('/');
+    await completeQuiz(page);
+    await toResults(page);
+
+    const card = page.locator('.result-card').first();
+    const title = (await card.locator('.result-title-btn').textContent())?.trim() ?? '';
+    expect(title).not.toBe('');
+    await card.getByRole('button', { name: 'Rate 4 stars', exact: true }).click();
+
+    // wait for the debounced re-curation to land (the indicator toggles), then
+    // the rated title must still be present and still show its rating.
+    await expect(page.locator('.curating-indicator')).toBeHidden({ timeout: 10_000 });
+    const again = page.locator('.result-card', { has: page.locator('.result-title-btn', { hasText: title }) });
+    await expect(again).toHaveCount(1);
+    await expect(again.locator('.star.filled')).toHaveCount(4);
+  });
+});
