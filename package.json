@@ -20,7 +20,7 @@
     "test:install": "playwright install --with-deps chromium"
   },
   "devDependencies": {
-    "@axe-core/playwright": "4.10.2",
+    "@axe-core/playwright": "4.13.0",
     "@playwright/test": "1.56.0",
     "@types/node": "22.15.0",
     "oxlint": "^1.87.0",
